@@ -1,4 +1,4 @@
-from validators import Validator, ValidationError, CompoundValidationError
+from validators import Validator, InvalidError, InvalidGroupError
 from relationships import Relationship, CursorProxy
 import connection
 
@@ -91,11 +91,11 @@ class Model(object):
             elif k in self._fields:
                 try:
                     self._fields[k] = v.validate(self._fields[k])
-                except ValidationError, ve:
+                except InvalidError, ve:
                     errors[k] = ve.message
         
         if errors:
-            raise CompoundValidationError(errors)
+            raise CompoundInvalidError(errors)
     
     
     def save(self):
