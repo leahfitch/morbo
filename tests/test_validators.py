@@ -181,7 +181,7 @@ class TestDateTime(unittest.TestCase):
         
     def test_timelib(self):
         """
-        If timelib is installed, should be able to parse stuff like "yesterday"
+        If timelib is installed, should be able to parse stuff like "today"
         """
         try:
             import timelib
@@ -190,12 +190,12 @@ class TestDateTime(unittest.TestCase):
             return
         
         v = DateTime(use_timelib=True, use_dateutil=False)
-        yesterday = datetime.now().replace(hour=0,minute=0,second=0,microsecond=0)
+        today = datetime.now().replace(hour=0,minute=0,second=0,microsecond=0)
         
         try:
-            self.assertEqual(yesterday, v.validate('yesterday'))
+            self.assertEqual(today, v.validate("today"))
         except InvalidError:
-            self.fail('timelib enabled validator didn\'t pass "yesterday"')
+            self.fail('timelib enabled validator didn\'t pass "today"')
         
         
     def test_dateutil(self):
