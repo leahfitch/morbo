@@ -7,10 +7,10 @@ specification. Sometimes they also perform a conversion. For instance, a time
 validator might validate that a value is in one of a number of formats and then
 convert the value to, say, a datetime instance or a POSIX timestamp.
 
-This package contains quite a few useful validators but doesn't even try to include 
-the kitchen sink. Most applications will have their own validation requirements and 
-the thinking here is to make it as easy as possible to create new validators, rather
-than create a library that covers all cases.
+This package tries to supply a number of flexible validators but doesn't even
+come close to the kitchen sink. Most applications will have their own validation 
+requirements and the thinking here is to make it as easy as possible to create 
+new validators.
 
 So, creating validators is straightforward. Subclass Validator and implement 
 the validate() method. That's all that's required. Here is an example that will 
@@ -68,21 +68,40 @@ from datetime import datetime
 
 class InvalidError(Exception):
     """
-    This exception is thrown by all validators to indicate that data is invalid.
-    If you subclass Validator, throw this in validate().
+    This exception is thrown by all validators to indicate that data is invalid::
+    
+        v = SomeValidator()
+        try:
+            v.validate("puppies")
+        except InvalidError, e:
+            print "Oh no! Something's wrong! %s" % e.message
     """
 
 
-class InvalidGroupError(Exception):
+class InvalidGroupError(InvalidError):
     """
     This exception represents a group of invalid errors. It takes a dict where
     the keys are, presumably, the names of items that were invalid and the values
-    are the errors for their respective items.
+    are the errors for their respective items::
+        
+        
+        def check_stuff_out(stuff):
+            validator = SomeValidator()
+            errors = {}
+            
+            for k,v in stuff.items():
+                try:
+                    validator.validate(v)
+                except InvalidError, e:
+                    errors[k] = e
+            
+            if errors:
+                raise InvalidGroupError(errors)
     """
     
     def __init__(self, errors):
         self.errors = errors
-        super(CompoundInvalid, self).__init__(
+        super(InvalidGroupError, self).__init__(
             "Some errors were encountered\n" + \
             '\n'.join(["%s: %s" % (k,v) for k,v in errors.items()]))
 
@@ -90,7 +109,8 @@ class InvalidGroupError(Exception):
 
 class Validator(object):
     """
-    This is the base validator class. Don't use it unless you are inheriting.
+    This is the base validator class. Don't use it unless you are subclassing to
+    create your own validator.
     """
     
     def __init__(self, optional=False, default_value=None):
@@ -106,7 +126,13 @@ class Validator(object):
 
 class Text(Validator):
     """
-    Validate that a value is text and, optionally, that it meets a length specification.
+    Passes text, optionally checking length::
+    
+        v = Text(minlength=2,maxlength=7)
+        v.validate("foo") # ok
+        v.validate(23) # oops
+        v.validate("apron hats") # oops
+        v.validate("f") # oops
     """
     NOT_TEXT = 'Expected some text.'
     TOO_SHORT = 'This text is too short.'
@@ -132,9 +158,14 @@ class Text(Validator):
 
 class Email(Validator):
     """
-    Validates strings that meet the guidelines in `RFC 3696 <http://tools.ietf.org/html/rfc3696>`_
+    Passes email addresses that meet the guidelines in `RFC 3696 <http://tools.ietf.org/html/rfc3696>`_::
+    
+        v = Email()
+        v.validate("foo@example.com") # ok
+        v.validate("foo.bar_^&!baz@example.com") # ok
+        v.validate("@example.com") # oops!
     """
-    NOT_EMAIL = "Invalida email address"
+    NOT_EMAIL = "Invalid email address"
     pattern = re.compile("((\".+\")|((\\\.))|([\d\w\!#\$%&'\*\+\-/=\?\^_`\{\|\}~]))((\"[^@]+\")|(\\\.)|([\d\w\!#\$%&'\*\+\-/=\?\^_`\.\{\|\}~]))*@[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?(\.[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?)+\.?$")
     
     def validate(self, value):
@@ -142,6 +173,7 @@ class Email(Validator):
             raise InvalidError(self.NOT_EMAIL)
         if not self.pattern.match(value):
             raise InvalidError(self.NOT_EMAIL)
+        return value
 
 
 class DateTime(Validator):
@@ -150,6 +182,15 @@ class DateTime(Validator):
     It will use `timelib <http://pypi.python.org/pypi/timelib/>`_ if available,
     next it will try `dateutil.parser <http://labix.org/python-dateutil>`_. If neither
     is found, it will use :func:`datetime.strptime` with some predefined format string.
+    Int or float timestamps will also be accepted and converted::
+    
+        # assuming we have timelib
+        v = DateTime()
+        v.validate("today") # datetime.datetime(2011, 9, 17, 0, 0, 0)
+        v.validate("12:06am") # datetime.datetime(2011, 9, 17, 0, 6)
+        v.validate(datetime.now()) # datetime.datetime(2011, 9, 17, 0, 7)
+        v.validate(1316232496.342259) # datetime.datetime(2011, 9, 17, 4, 8, 16, 342259)
+        v.validate("ballon torches") # oops!
     """
     NOT_DATE = "Unrecognized date format"
     
@@ -172,6 +213,15 @@ class DateTime(Validator):
         
         
     def validate(self, value):
+        if isinstance(value, datetime):
+            return value
+        
+        if isinstance(value, int) or isinstance(value, float):
+            try:
+                return datetime.utcfromtimestamp(value)
+            except:
+                raise InvalidError(self.NOT_DATE)
+        
         if not isinstance(value, basestring):
             raise InvalidError, "Note a date or time"
         
@@ -205,7 +255,7 @@ class Bool(Validator):
         b.validate("false") # False, etc.
         
     """
-    NOT_BOOL = "Not a boolean."
+    NOT_BOOL = "Not a boolean"
     
     
     def validate(self, value):
@@ -227,3 +277,38 @@ class Bool(Validator):
         elif isinstance(value, bool):
             return value
         raise InvalidError(self.NOT_BOOL)
+        
+        
+class BoundingBox(Validator):
+    """
+    Passes a geographical bounding box of the form SWNE, e.g., 37.73,-122.48,37.78,-122.37.
+    It will accept a list or a comma-separated string::
+    
+        v = BoundingBox()
+        b.validate([42.75804,-85.0031, 42.76409, -84.9861]) # ok
+        b.validate("42.75804,-85.0031, 42.76409, -84.9861") # -> [42.75804,-85.0031, 42.76409, -84.9861]
+    """
+    VALUES_OUT_OF_RANGE = "All values must be numbers in the range -180.0 to 180.0"
+    WRONG_SIZE = "A bounding box must have 4 values"
+    NOT_STRING_OR_LIST = "Expected a comma-separated list of values or a list or tuple object."
+    
+    def validate(self, value):
+        if not isinstance(value, (list, tuple)):
+            if isinstance(value, basestring):
+                value = [v.strip() for v in value.split(',')]
+            else:
+                raise InvalidError(self.NOT_STRING_OR_LIST)
+        
+        if len(value) != 4:
+            raise InvalidError(self.WRONG_SIZE)
+            
+        try:
+            value = [float(v) for v in value]
+        except ValueError:
+            raise InvalidError(self.VALUES_OUT_OF_RANGE)
+        
+        for v in value:
+            if not (-180.0 <= v <= 180.0):
+                raise InvalidError(self.VALUES_OUT_OF_RANGE)
+        
+        return value

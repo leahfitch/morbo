@@ -5,6 +5,7 @@ Unit tests for data validators
 import unittest
 from morbo.validators import *
 from datetime import datetime
+import time
 
 
 class ValidatorsTestCase(unittest.TestCase):
@@ -139,13 +140,9 @@ class TestEmailCase(unittest.TestCase):
         
         for email in emails:
             try:
-                v.validate(email)
+                self.assertEquals(email, v.validate(email))
             except InvalidError:
                 self.fail('Failed to accept %s' % email)
-        
-        
-    def test_return_value(self):
-        """Should always return the input value"""
         
         
         
@@ -215,6 +212,41 @@ class TestDateTime(unittest.TestCase):
             self.assertEqual(bday, v.validate('9/6/82'))
         except InvalidError:
             self.fail('dateutil enabled validator didn\'t pass "9/6/82"')
+            
+            
+    def test_reflexive(self):
+        """
+        Should pass and return a datetime.datetime instance.
+        """
+        v = DateTime()
+        now = datetime.now()
+        
+        try:
+            self.assertEquals(now, v.validate(now))
+        except InvalidError:
+            self.fail("Failed to pass a datetime.datetime instance")
+            
+            
+    def test_timestamp(self):
+        """
+        Should pass both int and float timestamps and convert to utc datetime
+        """
+        v = DateTime()
+        now = time.time()
+        now_date = datetime.utcfromtimestamp(now)
+        
+        try:
+            self.assertEquals(now_date, v.validate(now))
+        except InvalidError:
+            self.fail("Failed to pass a float timestamp")
+            
+        now = int(now)
+        now_date = datetime.utcfromtimestamp(now)
+        
+        try:
+            self.assertEquals(now_date, v.validate(now))
+        except InvalidError:
+            self.fail("Failed to pass an int timestamp")
         
         
 class TestBool(unittest.TestCase):
@@ -282,6 +314,59 @@ class TestBool(unittest.TestCase):
             except InvalidError:
                 self.fail("Didn't pass '%s'" % true)
         
+        
+        
+class TestBoundingBox(unittest.TestCase):
+    
+    def test_fail(self):
+        """
+        Shouldn't pass things that aren't a bounding box.
+        """
+        not_bboxes = [
+            "fred",
+            (1,3,4),
+            ["apples", 42, 24, 6],
+            (1,181,3,-300),
+            348.345
+        ]
+        v = BoundingBox()
+        
+        for not_bbox in not_bboxes:
+            try:
+                v.validate(not_bbox)
+                self.fail("Passed '%s'" % (not_bbox,))
+            except InvalidError:
+                pass
+        
+        
+    def test_list(self):
+        """Should pass a list or tuple"""
+        box = [42.75804,-85.0031, 42.76409, -84.9861]
+        v = BoundingBox()
+        
+        try:
+            v.validate(box)
+        except InvalidError:
+            self.fail("Failed '%s'", box)
+            
+        box = tuple(box)
+        
+        try:
+            v.validate(box)
+        except InvalidError:
+            self.fail("Failed '%s'", box)
+        
+        
+    def test_string(self):
+        """Should pass a comma-separated string and convert to a tuple"""
+        box = [42.75804,-85.0031, 42.76409, -84.9861]
+        str_box = ",".join([str(b) for b in box])
+        v = BoundingBox()
+        
+        try:
+            self.assertEqual(box, v.validate(str_box))
+        except InvalidError:
+            self.fail("Failed '%s'", str_box)
         
         
 if __name__ == "__main__":
