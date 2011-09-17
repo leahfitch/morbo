@@ -63,6 +63,7 @@ Then we can do things based on the type of error, if we so desire::
 """
 
 import re
+from datetime import datetime
 
 
 class InvalidError(Exception):
@@ -92,8 +93,9 @@ class Validator(object):
     This is the base validator class. Don't use it unless you are inheriting.
     """
     
-    def __init__(self, optional=False):
+    def __init__(self, optional=False, default_value=None):
         self.optional = optional
+        self.default_value = default_value
     
     def validate(self, value):
         raise NotImplementedError
@@ -129,20 +131,27 @@ class Text(Validator):
 
 
 class Email(Validator):
-    """Validates strings that meet the guidelines in `RFC 3696 <http://tools.ietf.org/html/rfc3696>`_"""
-    pattern = re.compile("((\"[^@]+\")|((\\[^@]))|([\d\w\!#\$%&'\*\+\-/=\?\^_`\{\|\}~]))((\"[^@]+\")|(\\[^@])|([\d\w\!#\$%&'\*\+\-/=\?\^_`\.\{\|\}~]))*@[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?(\.[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?)+\.?$")
+    """
+    Validates strings that meet the guidelines in `RFC 3696 <http://tools.ietf.org/html/rfc3696>`_
+    """
+    NOT_EMAIL = "Invalida email address"
+    pattern = re.compile("((\".+\")|((\\\.))|([\d\w\!#\$%&'\*\+\-/=\?\^_`\{\|\}~]))((\"[^@]+\")|(\\\.)|([\d\w\!#\$%&'\*\+\-/=\?\^_`\.\{\|\}~]))*@[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?(\.[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?)+\.?$")
     
     def validate(self, value):
+        if not isinstance(value, basestring):
+            raise InvalidError(self.NOT_EMAIL)
         if not self.pattern.match(value):
-            raise InvalidError("Invalid email address.")
+            raise InvalidError(self.NOT_EMAIL)
 
 
 class DateTime(Validator):
-    """Validates many representations of date & time and converts to datetime.datetime.
+    """
+    Validates many representations of date & time and converts to datetime.datetime.
     It will use `timelib <http://pypi.python.org/pypi/timelib/>`_ if available,
     next it will try `dateutil.parser <http://labix.org/python-dateutil>`_. If neither
     is found, it will use :func:`datetime.strptime` with some predefined format string.
     """
+    NOT_DATE = "Unrecognized date format"
     
     try:
         import timelib
@@ -150,15 +159,71 @@ class DateTime(Validator):
     except ImportError:
         try:
             from dateutil import parser as date_parser
-            strtodatetime = date_parser.parse
+            parse = date_parser.parse
         except ImportError:
-            strtodatetime = None
+            pass
     
-    def __init__(self, now=False, default_format="", *args, **kwargs):
+    def __init__(self, default_format="%x %X", use_timelib=True, 
+            use_dateutil=True, *args, **kwargs):
         super(DateTime, self).__init__(*args, **kwargs)
         self.default_format = default_format
-        self.now = now
-
-
-class PhoneNumber(Validator):
-    pass
+        self.use_timelib = True
+        self.use_dateutil = True
+        
+        
+    def validate(self, value):
+        if not isinstance(value, basestring):
+            raise InvalidError, "Note a date or time"
+        
+        if self.use_timelib and hasattr(self, 'strtodatetime'):
+            try:
+                return self.strtodatetime(value)
+            except:
+                raise InvalidError(self.NOT_DATE)
+        
+        if self.use_dateutil and hasattr(self, 'parse'):
+            try:
+                return self.parse(value)
+            except:
+                raise InvalidError(self.NOT_DATE)
+        
+        try:
+            return datetime.strptime(value, self.default_format)
+        except:
+            raise InvalidError(self.NOT_DATE)
+            
+            
+class Bool(Validator):
+    """
+    Passes and converts most representations of True and False::
+        
+        b = Bool()
+        b.validate("true") # True
+        b.validate(1) # True
+        b.validate("yes") # True
+        b.validate(True) # True
+        b.validate("false") # False, etc.
+        
+    """
+    NOT_BOOL = "Not a boolean."
+    
+    
+    def validate(self, value):
+        if isinstance(value, basestring):
+            v = value.lower()
+            if v in ["true", "1", "yes"]:
+                return True
+            elif v in ["false", "0", "no"]:
+                return False
+            else:
+                raise InvalidError(self.NOT_BOOL)
+        elif isinstance(value, int):
+            if value == 1:
+                return True
+            elif value == 0:
+                return False
+            else:
+                raise InvalidError(self.NOT_BOOL)
+        elif isinstance(value, bool):
+            return value
+        raise InvalidError(self.NOT_BOOL)
