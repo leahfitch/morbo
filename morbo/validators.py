@@ -311,4 +311,59 @@ class BoundingBox(Validator):
             if not (-180.0 <= v <= 180.0):
                 raise InvalidError(self.VALUES_OUT_OF_RANGE)
         
-        return value
+        return tuple(value)
+        
+        
+class LatLng(Validator):
+    """
+    Passes a geographical point in for form of a list, tuple or comma-separated string::
+    
+        v = LatLng()
+        v.validate("42.76066, -84.9929") # ok -> (42.76066, -84.9929)
+        v.validate((42.76066, -84.9929)) # ok
+        v.validate("234,56756.453") # oops
+    """
+    VALUES_OUT_OF_RANGE = "All values must be numbers in the range -180.0 to 180.0"
+    WRONG_SIZE = "A point must have 2 values"
+    NOT_STRING_OR_LIST = "Expected a comma-separated list of values or a list or tuple object."
+    
+    def validate(self, value):
+        if not isinstance(value, (list, tuple)):
+            if not isinstance(value, basestring):
+                raise InvalidError(self.NOT_STRING_OR_LIST)
+            value = [v.strip() for v in value.split(",")]
+        
+        if len(value) != 2:
+            raise InvalidError(self.WRONG_SIZE)
+        
+        try:
+            value = [float(v) for v in value]
+        except ValueError:
+            raise InvalidError(self.VALUES_OUT_OF_RANGE)
+        
+        for v in value:
+            if not (-180.0 <= v <= 180.0):
+                raise InvalidError(self.VALUES_OUT_OF_RANGE)
+        
+        return tuple(value)
+        
+        
+class Enum(Validator):
+    """
+    Passes anything that evaluates equal to one of a list of values::
+    
+        v = Enum(['a', 'b', 'c'])
+        v.validate('a') # ok
+        v.validate('d') # nope!
+    """
+    NOT_IN_LIST = "Not in the list"
+    
+    def __init__(self, values, *args, **kwargs):
+        super(Enum, self).__init__(*args, **kwargs)
+        self.values = values
+    
+    
+    def validate(self, value):
+        if value in self.values:
+            return value
+        raise InvalidError(self.NOT_IN_LIST)

@@ -340,7 +340,9 @@ class TestBoundingBox(unittest.TestCase):
         
         
     def test_list(self):
-        """Should pass a list or tuple"""
+        """
+        Should pass a list or tuple
+        """
         box = [42.75804,-85.0031, 42.76409, -84.9861]
         v = BoundingBox()
         
@@ -358,8 +360,10 @@ class TestBoundingBox(unittest.TestCase):
         
         
     def test_string(self):
-        """Should pass a comma-separated string and convert to a tuple"""
-        box = [42.75804,-85.0031, 42.76409, -84.9861]
+        """
+        Should pass a comma-separated string and convert to a tuple
+        """
+        box = (42.75804,-85.0031, 42.76409, -84.9861)
         str_box = ",".join([str(b) for b in box])
         v = BoundingBox()
         
@@ -367,6 +371,91 @@ class TestBoundingBox(unittest.TestCase):
             self.assertEqual(box, v.validate(str_box))
         except InvalidError:
             self.fail("Failed '%s'", str_box)
+        
+        
+class TestLatLng(unittest.TestCase):
+    
+    def test_fail(self):
+        """
+        Should throw InvalidError for things that aren't a geographic point
+        """
+        not_latlngs = [
+            14,
+            "the whole earf",
+            {'foo': 'bar'},
+            (181,-181)
+        ]
+        
+        v = LatLng()
+        
+        for not_latlng in not_latlngs:
+            try:
+                v.validate(not_latlng)
+                self.fail("Passed %s" % (not_latlng,))
+            except InvalidError:
+                pass
+            
+            
+    def test_pass(self):
+        """
+        Should pass a list, tuple or comma-separated string.
+        """
+        latlngs = [
+            "42.76066, -84.9929",
+            (42.76066, -84.9929),
+            [42.76066, -84.9929]
+        ]
+        
+        v = LatLng()
+        
+        for latlng in latlngs:
+            try:
+                v.validate(latlng)
+            except InvalidError:
+                self.fail("Failed to pass %s" % latlng)
+        
+        
+    def test_return_value(self):
+        """
+        Should always return a 2-tuple of floats
+        """
+        latlng = (42.76066, -84.9929)
+        latlngs = [list(latlng), "%s,%s" % latlng]
+        
+        v = LatLng()
+        
+        for l in latlngs:
+            self.assertEqual(latlng, v.validate(l))
+        
+        
+class TestEnum(unittest.TestCase):
+    
+    def test_fail(self):
+        """
+        Shouldn't pass anything not in the defined list
+        """
+        values = [5, "atilla the hun", unicode]
+        wrong = [8, "ivan the terrible", str]
+        
+        v = Enum(values)
+        
+        for w in wrong:
+            self.assertRaises(InvalidError, v.validate, w)
+            
+            
+    def test_pass(self):
+        """
+        Should pass anything in the defined list
+        """
+        values = [5, "atilla the hun", unicode]
+        
+        v = Enum(values)
+        
+        for value in values:
+            try:
+                self.assertEqual(value, v.validate(value))
+            except InvalidError:
+                self.fail("Didn't pass %s" % value)
         
         
 if __name__ == "__main__":
