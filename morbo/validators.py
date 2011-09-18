@@ -166,7 +166,7 @@ class Email(Validator):
         v.validate("@example.com") # oops!
     """
     NOT_EMAIL = "Invalid email address"
-    pattern = re.compile("((\".+\")|((\\\.))|([\d\w\!#\$%&'\*\+\-/=\?\^_`\{\|\}~]))((\"[^@]+\")|(\\\.)|([\d\w\!#\$%&'\*\+\-/=\?\^_`\.\{\|\}~]))*@[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?(\.[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?)+\.?$")
+    pattern = re.compile("^((\".+\")|((\\\.))|([\d\w\!#\$%&'\*\+\-/=\?\^_`\{\|\}~]))((\"[^@]+\")|(\\\.)|([\d\w\!#\$%&'\*\+\-/=\?\^_`\.\{\|\}~]))*@[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?(\.[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?)+\.?$")
     
     def validate(self, value):
         if not isinstance(value, basestring):
@@ -367,3 +367,53 @@ class Enum(Validator):
         if value in self.values:
             return value
         raise InvalidError(self.NOT_IN_LIST)
+        
+        
+class TypeOf(Validator):
+    """
+    Passes any value of a specified type::
+    
+        v = TypeOf(float)
+        v.validate(0.4) # ok
+        v.validate(1) # nope
+    """
+    
+    def __init__(self, type, *args, **kwargs):
+        super(TypeOf, self).__init__(*args, **kwargs)
+        self.type = type
+        
+        
+    def validate(self, value):
+        if not isinstance(value, self.type):
+            raise InvalidError, "Not of type '%s'" % self.type
+        return value
+        
+        
+class URL(Validator):
+    """
+    Passes a URL using guidelines from RFC 3696::
+    
+    v = URL()
+    v.validate('http://www.example.com') # ok
+    v.validate('https://www.example.com:8000/foo/bar?smelly_ones=true#dsfg') # ok
+    v.validate('http://www.example.com/foo;foo') # nope
+    
+    // You can also set which schemes to match
+    v = URL(schemes=('gopher',))
+    v.validate('gopher://example.com/') # ok
+    v.validate('http://example.com/') # nope!
+    """
+    NOT_A_URL = "Not a URL"
+    
+    def __init__(self, schemes=('http(s)?',), *args, **kwargs):
+        super(URL, self).__init__(*args, **kwargs)
+        self.pattern = re.compile('^(%s)?://[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?(\.[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?)+\.?(:\d+)?(/[^/;\?]+)*/?(\?[^/;\?#]*)?(#.*)?$' % \
+                                "|".join(schemes))
+        
+        
+    def validate(self, value):
+        if not isinstance(value, basestring):
+            raise InvalidError(self.NOT_A_URL)
+        if not self.pattern.match(value):
+            raise InvalidError(self.NOT_A_URL)
+        return value

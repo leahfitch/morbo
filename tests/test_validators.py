@@ -187,7 +187,7 @@ class TestDateTime(unittest.TestCase):
             return
         
         v = DateTime(use_timelib=True, use_dateutil=False)
-        today = datetime.now().replace(hour=0,minute=0,second=0,microsecond=0)
+        today = datetime.utcnow().replace(hour=0,minute=0,second=0,microsecond=0)
         
         try:
             self.assertEqual(today, v.validate("today"))
@@ -457,6 +457,61 @@ class TestEnum(unittest.TestCase):
             except InvalidError:
                 self.fail("Didn't pass %s" % value)
         
+        
+class TestTypeOf(unittest.TestCase):
+    
+    def test_fail(self):
+        """
+        Shouldn't pass values of a type not specified
+        """
+        v = TypeOf(int)
+        self.assertRaises(InvalidError, v.validate, "Hi, hungry?")
+        
+        
+    def test_pass(self):
+        """
+        Should pass values of the specified type
+        """
+        v = TypeOf(basestring)
+        value = u"foo"
+        
+        try:
+            self.assertEqual(value, v.validate(value))
+        except InvalidError:
+            self.fail("Didn't pass value of specified type")
+        
+        
+class TestURL(unittest.TestCase):
+    
+    def test_fail(self):
+        """
+        Don't pass things that aren't URLs or that don't have the specified schemes.
+        """
+        not_urls = ["snipe", u'\xe2\x99\xa5', 777, 'huup://foo.bar']
+        v = URL(schemes=('http',))
+        
+        for not_url in not_urls:
+            self.assertRaises(InvalidError, v.validate, not_url)
+        
+        
+    def test_pass(self):
+        """
+        Should pass URLs with the specified schemes.
+        """
+        urls = [
+            'http://example.com',
+            'foo://example.com./',
+            'http://example.com/foo/bar?baz=goo&snoo=snazz#help',
+            'http://127.0.0.1',
+            'bar://127.0.0.1:80'
+        ]
+        v = URL(schemes=('http', 'foo', 'bar'))
+        
+        for url in urls:
+            try:
+                self.assertEqual(url, v.validate(url))
+            except InvalidError:
+                self.fail("Didn't pass '%s'" % url)
         
 if __name__ == "__main__":
     unittest.main()
