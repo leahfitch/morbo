@@ -392,16 +392,16 @@ class TypeOf(Validator):
 class URL(Validator):
     """
     Passes a URL using guidelines from RFC 3696::
-    
-    v = URL()
-    v.validate('http://www.example.com') # ok
-    v.validate('https://www.example.com:8000/foo/bar?smelly_ones=true#dsfg') # ok
-    v.validate('http://www.example.com/foo;foo') # nope
-    
-    // You can also set which schemes to match
-    v = URL(schemes=('gopher',))
-    v.validate('gopher://example.com/') # ok
-    v.validate('http://example.com/') # nope!
+        
+        v = URL()
+        v.validate('http://www.example.com') # ok
+        v.validate('https://www.example.com:8000/foo/bar?smelly_ones=true#dsfg') # ok
+        v.validate('http://www.example.com/foo;foo') # nope
+        
+        # You can also set which schemes to match
+        v = URL(schemes=('gopher',))
+        v.validate('gopher://example.com/') # ok
+        v.validate('http://example.com/') # nope!
     """
     NOT_A_URL = "Not a URL"
     
@@ -417,3 +417,61 @@ class URL(Validator):
         if not self.pattern.match(value):
             raise InvalidError(self.NOT_A_URL)
         return value
+        
+        
+class OneOf(Validator):
+    """
+    Passes values that pass one of a list of validators::
+    
+        v = OneOf(URL(), Enum('a', 'b'))
+        v.validate('b') # ok
+        v.validate('http://www.example.com') # ok
+        v.validate(23) # nope
+    """
+    
+    def __init__(self, validators, *args, **kwargs):
+        super(OneOf, self).__init__(*args, **kwargs)
+        self.validators = validators
+        
+        
+    def validate(self, value):
+        is_valid = False
+        
+        for v in self.validators:
+            try:
+                v.validate(value)
+                is_valid = True
+                break
+            except InvalidError:
+                pass
+        
+        if is_valid:
+            return value
+            
+        raise InvalidError("Didn't match any validators")
+        
+        
+class ListOf(Validator):
+    """
+    Passes a list of values that pass a validator::
+    
+        v = ListOf(TypeOf(int))
+        v.validate([1,2,3]) # ok
+        v.validate([1,2,"3"]) # nope
+        v.validate(1) # nope
+    """
+    NOT_A_LIST = "Not a list"
+    
+    def __init__(self, validator, *args, **kwargs):
+        super(ListOf, self).__init__(*args, **kwargs)
+        self.validator = validator
+        
+        
+    def validate(self, values):
+        if not isinstance(values, list):
+            raise InvalidError(self.NOT_A_LIST)
+        
+        for v in values:
+            self.validator.validate(v)
+        
+        return values
