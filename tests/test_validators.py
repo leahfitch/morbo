@@ -513,5 +513,69 @@ class TestURL(unittest.TestCase):
             except InvalidError:
                 self.fail("Didn't pass '%s'" % url)
         
+        
+class TestOneOf(unittest.TestCase):
+    
+    def test_fail(self):
+        """
+        Should not pass things that don't pass at least one validator.
+        """
+        bads = [
+            "snooze button",
+            50
+        ]
+        v = OneOf((Email(), TypeOf(float)))
+        
+        for bad in bads:
+            self.assertRaises(InvalidError, v.validate, bad)
+            
+            
+    def test_pass(self):
+        """
+        Should pass anything that matches any of the validators
+        """
+        goods = [23, 3.1459, "batman", 16]
+        v = OneOf((TypeOf(int), Enum((3.1459, "pie", "batman"))))
+        
+        for good in goods:
+            try:
+                self.assertEqual(good, v.validate(good))
+            except InvalidError:
+                self.fail("Failed to pass '%s'" % good)
+        
+        
+class TestListOf(unittest.TestCase):
+    
+    def test_fail(self):
+        """
+        Shouldn't pass a list of things that don't pass the validator or things
+        that aren't lists.
+        """
+        bads = [23, [23,24,25]]
+        v = ListOf(TypeOf(basestring))
+        
+        for bad in bads:
+            self.assertRaises(InvalidError, v.validate, bad)
+            
+            
+    def test_pass(self):
+        """
+        Should pass a list of things that pass the validator
+        """
+        goods = [
+            ['a', 15, 'pointy hat'],
+            [5],
+            ['pancakes', 'alpha centauri', 9]
+        ]
+        
+        v = ListOf(OneOf((TypeOf(basestring), TypeOf(int))))
+        
+        for good in goods:
+            try:
+                self.assertEqual(good, v.validate(good))
+            except InvalidError:
+                self.fail("Failed to pass '%s'", good)
+        
+        
 if __name__ == "__main__":
     unittest.main()
