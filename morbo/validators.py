@@ -25,9 +25,9 @@ only validate yummy things. Optionally, it will convert to yumminess level::
             'Duck Confit': 28.06
         }
         
-        def __init__(self, should_convert=False, *args, **kwargs):
+        def __init__(self, should_convert=False, **kwargs):
             self.should_convert = should_convert
-            super(Yummy, self).__init__(*args, **kwargs)
+            super(Yummy, self).__init__(**kwargs)
             
             
         def validate(self, value):
@@ -124,6 +124,63 @@ class Validator(object):
         raise NotImplementedError
 
 
+class GroupValidator(Validator):
+    """
+    Validates a a dict of `key => validator`::
+    
+        v = GroupValidator(foo=Text(), bar=TypeOf(int))
+        v.validate({'foo':'oof', 'bar':23}) # ok
+        v.validate(5) # nope
+        v.validate('foo':'gobot', 'bar':'pizza') # nope
+        
+        # unspecified keys are filtered
+        v.validate({'foo': 'a', 'goo': 'b', 'bar':17})
+        # ok -> {'foo': 'a', 'bar':17}
+        
+        # optional validators are, well, optional
+        v = GroupValidator(foo=Text(), bar=TypeOf(int, optional=True, default_value=8))
+        v.validate({'foo':'ice cream'}) # -> {'foo':'ice cream', 'bar': 8}
+    """
+    NOT_A_DICT = "Not a dict"
+    MISSING_REQUIRED = "This field is required."
+    
+    def __init__(self, **kwargs):
+        keys = ['optional', 'default_value']
+        newkwargs = {}
+        
+        for k in keys:
+            if k in kwargs:
+                newkwargs[k] = kwargs.pop(k)
+        
+        Validator.__init__(self, **newkwargs)
+        self.validators = kwargs
+        
+        
+    def validate(self, value):
+        if not isinstance(value, dict):
+            raise InvalidError(self.NOT_A_DICT)
+        
+        validated = {}
+        errors = {}
+        
+        for k,v in self.validators.items():
+            if k in value:
+                try:
+                    validated[k] = v.validate(value[k])
+                except InvalidError, e:
+                    errors[k] = e
+            else:
+                if not v.optional:
+                    errors[k] = self.MISSING_REQUIRED
+                    continue
+                validated[k] = v.default_value
+        
+        if errors:
+            raise InvalidGroupError(errors)
+        
+        return validated
+
+
 class Text(Validator):
     """
     Passes text, optionally checking length::
@@ -138,10 +195,10 @@ class Text(Validator):
     TOO_SHORT = 'This text is too short.'
     TOO_LONG = 'This text is too long.'
     
-    def __init__(self, minlength=None, maxlength=None, *args, **kwargs):
+    def __init__(self, minlength=None, maxlength=None, **kwargs):
         self.minlength = minlength
         self.maxlength = maxlength
-        super(Text, self).__init__(*args, **kwargs)
+        super(Text, self).__init__(**kwargs)
         
     def validate(self, value):
         if not isinstance(value, basestring):
@@ -205,8 +262,8 @@ class DateTime(Validator):
             pass
     
     def __init__(self, default_format="%x %X", use_timelib=True, 
-            use_dateutil=True, *args, **kwargs):
-        super(DateTime, self).__init__(*args, **kwargs)
+            use_dateutil=True, **kwargs):
+        super(DateTime, self).__init__(**kwargs)
         self.default_format = default_format
         self.use_timelib = True
         self.use_dateutil = True
@@ -358,8 +415,8 @@ class Enum(Validator):
     """
     NOT_IN_LIST = "Not in the list"
     
-    def __init__(self, values, *args, **kwargs):
-        super(Enum, self).__init__(*args, **kwargs)
+    def __init__(self, *values, **kwargs):
+        super(Enum, self).__init__(**kwargs)
         self.values = values
     
     
@@ -376,16 +433,22 @@ class TypeOf(Validator):
         v = TypeOf(float)
         v.validate(0.4) # ok
         v.validate(1) # nope
+        
+        # more than one type is ok too
+        v = TypeOf(int, float, complex)
+        v.validate(5) # ok
+        v.validate(5.5) # ok
+        v.validate(complex(5,5)) # ok
     """
     
-    def __init__(self, type, *args, **kwargs):
-        super(TypeOf, self).__init__(*args, **kwargs)
-        self.type = type
+    def __init__(self, *types, **kwargs):
+        super(TypeOf, self).__init__(**kwargs)
+        self.types = types
         
         
     def validate(self, value):
-        if not isinstance(value, self.type):
-            raise InvalidError, "Not of type '%s'" % self.type
+        if not isinstance(value, self.types):
+            raise InvalidError, "Not of type '%s'" % (self.types,)
         return value
         
         
@@ -405,8 +468,8 @@ class URL(Validator):
     """
     NOT_A_URL = "Not a URL"
     
-    def __init__(self, schemes=('http(s)?',), *args, **kwargs):
-        super(URL, self).__init__(*args, **kwargs)
+    def __init__(self, schemes=('http(s)?',), **kwargs):
+        super(URL, self).__init__(**kwargs)
         self.pattern = re.compile('^(%s)?://[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?(\.[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?)+\.?(:\d+)?(/[^/;\?]+)*/?(\?[^/;\?#]*)?(#.*)?$' % \
                                 "|".join(schemes))
         
@@ -429,8 +492,8 @@ class OneOf(Validator):
         v.validate(23) # nope
     """
     
-    def __init__(self, validators, *args, **kwargs):
-        super(OneOf, self).__init__(*args, **kwargs)
+    def __init__(self, *validators, **kwargs):
+        super(OneOf, self).__init__(**kwargs)
         self.validators = validators
         
         
@@ -462,8 +525,8 @@ class ListOf(Validator):
     """
     NOT_A_LIST = "Not a list"
     
-    def __init__(self, validator, *args, **kwargs):
-        super(ListOf, self).__init__(*args, **kwargs)
+    def __init__(self, validator, **kwargs):
+        super(ListOf, self).__init__(**kwargs)
         self.validator = validator
         
         
