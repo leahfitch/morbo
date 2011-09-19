@@ -437,7 +437,7 @@ class TestEnum(unittest.TestCase):
         values = [5, "atilla the hun", unicode]
         wrong = [8, "ivan the terrible", str]
         
-        v = Enum(values)
+        v = Enum(*values)
         
         for w in wrong:
             self.assertRaises(InvalidError, v.validate, w)
@@ -449,7 +449,7 @@ class TestEnum(unittest.TestCase):
         """
         values = [5, "atilla the hun", unicode]
         
-        v = Enum(values)
+        v = Enum(*values)
         
         for value in values:
             try:
@@ -524,7 +524,7 @@ class TestOneOf(unittest.TestCase):
             "snooze button",
             50
         ]
-        v = OneOf((Email(), TypeOf(float)))
+        v = OneOf(Email(), TypeOf(float))
         
         for bad in bads:
             self.assertRaises(InvalidError, v.validate, bad)
@@ -535,7 +535,7 @@ class TestOneOf(unittest.TestCase):
         Should pass anything that matches any of the validators
         """
         goods = [23, 3.1459, "batman", 16]
-        v = OneOf((TypeOf(int), Enum((3.1459, "pie", "batman"))))
+        v = OneOf(TypeOf(int), Enum(3.1459, "pie", "batman"))
         
         for good in goods:
             try:
@@ -568,13 +568,61 @@ class TestListOf(unittest.TestCase):
             ['pancakes', 'alpha centauri', 9]
         ]
         
-        v = ListOf(OneOf((TypeOf(basestring), TypeOf(int))))
+        v = ListOf(TypeOf(basestring, int))
         
         for good in goods:
             try:
                 self.assertEqual(good, v.validate(good))
             except InvalidError:
                 self.fail("Failed to pass '%s'", good)
+        
+        
+class TestGroup(unittest.TestCase):
+    
+    def test_fail(self):
+        """
+        Shouldn't pass anything that isn't a dict with specified keys and
+        validated values.
+        """
+        bads = [
+            {
+                5: "6",
+                7: "8"
+            },
+            {
+                "hoodo": Text(),
+                "we": "appreciate" 
+            }
+        ]
+        
+        v = GroupValidator(
+            do = Text(),
+            we = Text()
+        )
+        
+        for bad in bads:
+            self.assertRaises(InvalidGroupError, v.validate, bad)
+            
+        self.assertRaises(InvalidError, v.validate, "not a dict")
+        
+        
+    def test_pass(self):
+        """
+        Should pass dicts with specified keys and validated values. Should 
+        also return a dict with converted values.
+        """
+        goods = [
+            ({'foo':'bar', 'baz':23}, {'foo':'bar', 'baz':23}),
+            ({'foo':'bar'}, {'foo':'bar', 'baz':5.5})
+        ]
+        
+        v = GroupValidator(foo=Text(), baz=TypeOf(int, float, optional=True, default_value=5.5))
+        
+        for good_in, good_out in goods:
+            try:
+                self.assertEqual(good_out, v.validate(good_in))
+            except InvalidError:
+                self.fail("Failed to pass %s" % good_in)
         
         
 if __name__ == "__main__":
