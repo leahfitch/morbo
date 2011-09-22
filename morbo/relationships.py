@@ -1,5 +1,6 @@
 from pymongo.objectid import ObjectId
 import importlib
+from cursor import CursorProxy
 
 
 class Relationship(object):
@@ -165,22 +166,3 @@ class One(Relationship):
             if id and self.cascade:
                 self.get_model().get_collection().remove({ '_id': id })
                 
-                
-                
-class CursorProxy(object):
-    
-    def __init__(self, model, cursor):
-        self._model = model
-        self._cursor = cursor
-        
-        
-    def __getitem__(self, index):
-        return model(self._cursor.__getitem__(index))
-        
-        
-    def __getattr__(self, name):
-        return getattr(self._cursor, name)
-        
-        
-    def next(self):
-        return model(self._cursor.next())

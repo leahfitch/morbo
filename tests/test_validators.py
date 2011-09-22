@@ -1,4 +1,3 @@
-#!/usr/bin/python
 """
 Unit tests for data validators
 """
@@ -167,13 +166,13 @@ class TestDateTime(unittest.TestCase):
         """
         Should parse dates in the default format and return them as datetime objects.
         """
-        v = DateTime(default_format="%D")
+        v = DateTime(default_format="%x")
         bday = datetime(1982, 9, 6)
         
         try:
             self.assertEqual(bday, v.validate('9/6/82'))
         except InvalidError:
-            self.fail('Failed to validate 9/6/82 with format %D')
+            self.fail('Failed to validate 9/6/82 with format %x')
         
         
     def test_timelib(self):

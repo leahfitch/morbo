@@ -1,5 +1,8 @@
+"""
+"""
 from validators import Validator, InvalidError, InvalidGroupError
-from relationships import Relationship, CursorProxy
+from relationships import Relationship
+from cursor import CursorProxy
 import connection
 
 
@@ -52,11 +55,36 @@ class Model(object):
             return cls(**fields)
     
     
+    @classmethod
+    def count(cls):
+        return cls.get_collection().count()
+        
+        
+    @classmethod
+    def find_and_remove(cls, spec=None):
+        cls.get_collection().remove(spec)
+    
+    
     def __init__(self, **kwargs):
         parent = super(Model, self)
         parent.__setattr__('_related_instances', {})
         parent.__setattr__('_fields', kwargs)
         parent.__setattr__('embedded', False)
+    
+    
+    def __str__(self):
+        return "<%s %s>" % (
+            self.__class__.__name__,
+            self._fields['_id'] if '_id' in self._fields else 'unsaved'
+        )
+        
+        
+    def __repr__(self):
+        return str(self)
+        
+        
+    def __eq__(self, other):
+        return self._fields.get('_id', 0) == other._fields.get('_id', 1)
     
     
     def __getattr__(self, name):
@@ -95,7 +123,7 @@ class Model(object):
                     errors[k] = ve.message
         
         if errors:
-            raise CompoundInvalidError(errors)
+            raise InvalidGroupError(errors)
     
     
     def save(self):
