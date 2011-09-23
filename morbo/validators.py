@@ -538,3 +538,12 @@ class ListOf(Validator):
             self.validator.validate(v)
         
         return values
+        
+        
+class Anything(Validator):
+    """
+    Passes anything
+    """
+    
+    def validate(self, value):
+        return value

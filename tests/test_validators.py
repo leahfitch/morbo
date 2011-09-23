@@ -624,5 +624,21 @@ class TestGroup(unittest.TestCase):
                 self.fail("Failed to pass %s" % good_in)
         
         
+class TestAnything(unittest.TestCase):
+    
+    def test_pass(self):
+        """
+        Should pass anything
+        """
+        v = Anything()
+        anythings = ["foo", 7, Anything(), unittest]
+        
+        for anything in anythings:
+            try:
+                self.assertEqual(anything, v.validate(anything))
+            except InvalidError:
+                self.fail('Failed something')
+        
+        
 if __name__ == "__main__":
     unittest.main()
