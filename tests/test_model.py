@@ -89,7 +89,7 @@ class TestModel(unittest.TestCase):
         f.remove()
         
         self.assertEqual(0, Foo.count())
-        self.assertRaises(AttributeError, f.__getattr__, '_id')
+        self.assertEqual(f._id, None)
         
         
     def test_find_remove(self):
@@ -106,7 +106,7 @@ class TestModel(unittest.TestCase):
             
         self.assertEqual(20, Foo.count())
         
-        Foo.find_and_remove({'bars':{'$lt':10}})
+        Foo.remove({'bars':{'$lt':10}})
         
         self.assertEqual(10, Foo.count())
 

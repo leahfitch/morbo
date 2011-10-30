@@ -1,17 +1,11 @@
 """
 A MongoDB object mapper for puny humans.
-
-Morbo's goal is threefold:
-
-* Be friendly and pythonic
-* Provide rich validation and relationships
-* Don't be the data model police
-
-If you see me working against one of these goals, please call me out. Thanks.
 """
 
-import connection, relationships
+import connection
 from model import Model
+#from references import One, Many, Remote, RemoteList, Local, LocalList, Embedded
+from validators import *
 
 __author__ = "Elisha Cook <elisha@elishacook.com>"
 __copyright__ = "Copyright 2011, Elisha Cook"

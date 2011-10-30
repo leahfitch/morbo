@@ -1,42 +1,24 @@
 """
 Models are classes whose instances persist in a MongoDB database. Other than the
-special validator and relationship fields, Models are just regular python classes.
-You can have whatever non-validator/relationship attributes and methods you want.
+special validator fields, Models are just regular python classes.
+You can have whatever non-validator attributes and methods you want.
 Along with simple persistence, Model subclasses also provide methods for finding,
 removing and updating instances using almost the same API as pymongo.
 """
 from validators import Validator, InvalidError, InvalidGroupError
-from relationships import Relationship
 from cursor import CursorProxy
 import connection
 
-
 class ModelMeta(type):
     """
-    Creates new Model types. Cool.
+    Just adds a collection name to the class if it doesn't
+    already have one.
     """
-    def __new__(cls, name, bases, attrs):
-        newattrs = {
-            '_validators': {},
-            '_relationships': {},
-            '_fields': {}
-        }
+    def __init__(cls, name, bases, dict):
+        super(ModelMeta, cls).__init__(name, bases, dict)
         
-        for k,v in attrs.items():
-            if isinstance(v, Validator):
-                newattrs['_validators'][k] = v
-                newattrs['_fields'][k] = None
-            elif isinstance(v, Relationship):
-                newattrs['_relationships'][k] = v
-            else:
-                newattrs[k] = v
-        
-        if 'collection_name' not in newattrs:
-            n = name.lower()
-            newattrs['collection_name'] = n + 'es' if n[-1] == 's' else n + 's'
-        
-        return type.__new__(cls, name, bases, newattrs)
-
+        if 'collection_name' not in dict:
+            setattr(cls, 'collection_name', name.lower())
 
 
 class Model(object):
@@ -53,6 +35,7 @@ class Model(object):
         repr(s._id) # ObjectId('4e7be644d761504a98000000')
     """
     __metaclass__ = ModelMeta
+    collection_name = None
     _collection = None
     
     @classmethod
@@ -109,7 +92,7 @@ class Model(object):
         
         
     @classmethod
-    def find_and_remove(cls, spec=None):
+    def remove(cls, spec=None):
         """
         Works just like pymongo.Collection.remove(). It has a different name
         so as not to conflict with the instance method remove().
@@ -142,16 +125,18 @@ class Model(object):
             t.save() # ok, we are in the db now
             
         """
-        parent = super(Model, self)
-        parent.__setattr__('_related_instances', {})
-        parent.__setattr__('_fields', kwargs)
-        parent.__setattr__('embedded', False)
+        
+        for k,v in self.__class__.__dict__.items():
+            if isinstance(v, Validator):
+                setattr(self, k, kwargs.get(k))
+        setattr(self, '_id', kwargs.get('_id'))
+        self.remove = self._remove
     
     
     def __str__(self):
-        return "<%s %s>" % (
+        return "<%s \"%s\">" % (
             self.__class__.__name__,
-            self._fields['_id'] if '_id' in self._fields else 'unsaved'
+            self._id if self._id else '"not saved"'
         )
         
         
@@ -164,33 +149,9 @@ class Model(object):
         Compare this model instance with another one. They are equal if they 
         have the same _id.
         """
-        if not isinstance(other, Model):
+        if not isinstance(other, Model) or self._id is None or other._id is None:
             return False
-        return self._fields.get('_id', 0) == other._fields.get('_id', 1)
-    
-    
-    def __getattr__(self, name):
-        try:
-            if name not in self._related_instances:
-                r = self._relationships[name]
-                self._related_instances[name] = r.get(self)
-            return self._related_instances[name]
-        except KeyError:
-            try:
-                return self._fields[name]
-            except KeyError:
-                return super(Model, self).__getattribute__(name)
-    
-    
-    def __setattr__(self, name, value):
-        try:
-            r = self._relationships[name]
-            self._related_instances[name] = r.set(self, value)
-        except KeyError:
-            if name in self._validators:
-                self._fields[name] = value
-            else:
-                super(Model, self).__setattr__(name, value)
+        return self._id == other._id
     
     
     def validate(self):
@@ -198,39 +159,39 @@ class Model(object):
         Run validation on all validated fields.
         """
         errors = {}
-        for k,v in self._validators.items():
-            if not v.optional and k not in self._fields:
-                errors[k] = 'This field is required.'
-            elif k in self._fields:
-                try:
-                    self._fields[k] = v.validate(self._fields[k])
-                except InvalidError, ve:
-                    errors[k] = ve.message
-        
+        d = {}
+        for k,v in self.__class__.__dict__.items():
+            if isinstance(v, Validator):
+                if not v.optional and getattr(self, k) is None:
+                    errors[k] = 'This field is required.'
+                elif getattr(self, k) is not None:
+                    try:
+                        d[k] = v.validate(getattr(self, k))
+                        setattr(self, k, d[k])
+                    except InvalidError, ve:
+                        errors[k] = ve.message
         if errors:
             raise InvalidGroupError(errors)
+        
+        if self._id is not None:
+            d['_id'] = self._id
+        return d
     
     
     def save(self):
         """
         Save this instance to the database. Validation is performed first.
         """
-        assert not self.embedded, "Attempting to save embedded '%s' object." % self.__class__.__name__
-        self.validate()
-        self.get_collection().save(self._fields)
+        d = self.validate()
+        self.get_collection().save(d)
+        self._id = d['_id']
         
         
-    def remove(self):
+    def _remove(self):
         """
         Remove this instance from the database.
         """
-        assert not self.embedded, "Attempting to delete an embedded '%s' object." % self.__class__.__name__
-        assert '_id' in self._fields, "Attempting to remove unsaved '%s' object." % self.__class__.__name__
-        
-        for r in self._relationships.values():
-            r.remove(self)
-            
-        self._related_instances = {}
+        assert self._id is not None, "Attempting to remove unsaved '%s' object." % self.__class__.__name__
         
         self.get_collection().remove({ '_id': self._id })
-        self._fields.pop('_id')
+        self._id = None

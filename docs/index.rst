@@ -12,7 +12,6 @@ Modules
    connection
    validators
    model
-   relationships
 
 
 Index
