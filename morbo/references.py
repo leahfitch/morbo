@@ -1,15 +1,30 @@
+"""
+References are links between models. There are two types: `One` and `Many`.
+Each type can use a number of different storage policies. These policies
+define the structure of a link and are responsible for actually fetching data.
+Writing custom storage policies is supported and encouraged.
+"""
 from pymongo.objectid import ObjectId
 import importlib
 from cursor import CursorProxy
+import connection
 
 
-class Relationship(object):
+
+class Reference(object):
+    """
+    Base class for references.
+    """
     
-    def __init__(self, model, embedded=False, cascade=False, instance_class=None):
+    def __init__(self, model, storage_policy, cascade=False):
+        """
+        Create a new reference to `model` using `storage_policy`. If `cascade`
+        is `True` then the referenced model(s) will be removed when the owner
+        of this reference is removed.
+        """
         self.model = model
-        self.embedded = embedded
+        self.storage_policy = storage_policy
         self.cascade = cascade
-        self.instance_class = None
         
         
     def get_model(self):
@@ -22,147 +37,385 @@ class Relationship(object):
         return self.model
         
         
-    def get_default_field_name(self, plural=False):
-        name = self.model if isinstance(self.model, basestring) else self.model.__name__
-        name = name.lower()
-        
-        if self.embedded:
-            if plural:
-                name += 'es' if name[-1] == 's' else 's'
-        else:
-            if plural:
-                name += '_ids'
-            else:
-                name += '_id'
-        
-        return name
+    def update_owner_reference_fields(self, owner, doc):
+        f = self.storage_policy.get_owner_reference_field(owner)
+        if f:
+            k,v = f
+            owner._reference_fields[k] = doc.get(k, v)
         
         
+    def update_target_reference_fields(self, target, doc):
+        f = self.storage_policy.get_target_reference_field(target)
+        if f:
+            k,v = f
+            target._reference_fields[k] = doc.get(k, v)
+        
+        
+        
+class One(Reference):
+    """
+    A reference to a single, lazy-loaded model.
+    """
     def get(self, owner):
-        raise NotImplementedError
+        return self.storage_policy.get_one(owner, self.get_model())
         
         
-    def set(self, owner, obj):
-        raise NotImplementedError
+    def set(self, owner, target):
+        self.storage_policy.set_one(owner, target)
         
         
-    def remove(self, owner):
-        raise NotImplementedError
+        
+class Many(Reference):
+    """
+    Reference to a group of models.
+    """
+    def find(self, owner, spec=None):
+        return self.storage_policy.get_many(
+                                owner, self.get_model(), spec)
         
         
-    def get_field(self):
-        raise NotImplementedError
+    def add(self, owner, target):
+        self.storage_policy.add_to_many(owner, target)
+        
+        
+    def remove(self, owner, target):
+        self.storage_policy.remove_from_many(owner, target)
+
+
+
+class StoragePolicy(object):
+    """
+    This is the abstract base class for all storage policies.
+    """
     
-    
-class Many(Relationship):
-    
-    def __init__(self, model, field=None, *args, **kwargs):
-        super(Many, self).__init__(model, *args, **kwargs)
+    def get_owner_reference_field(self, owner):
+        """
+        Get a tuple of `(field_name, default_value)` for the field the owner
+        model needs in order to maintain the reference. If the owner field
+        doesn't need any, return `None`
+        """
+        return None
         
-        if self.instance_class is None:
-            self.instance_class = ManyInstance
-            
-        if field is None:
-            self.field = self.get_default_field_name()
-        else:
-            self.field = field
-            
-            
-    def get(self, owner):
-        if self.embedded:
-            return [self.get_model()(**fields) for fields in owner._fields.get(self.field, [])]
-            
-        return self.instance_class(
-            self,
-            owner
+        
+    def get_target_reference_field(self, target):
+        """
+        Get a tuple of `(field_name, default_value)` for the field the owner
+        model needs in order to maintain the reference. If the owner field
+        doesn't need any, return `None`
+        """
+        return None
+        
+        
+    def get_one(self, owner, model):
+        """
+        Get a single model.
+        """
+        raise NotImplementedError
+        
+        
+    def set_one(self, owner, target):
+        """
+        Set a single model.
+        """
+        raise NotImplementedError
+        
+        
+    def remove_one(self, owner, target):
+        """
+        Remove a single model.
+        """
+        raise NotImplementedError
+        
+        
+    def get_many(self, owner, model, spec=None):
+        """
+        Get a model cursor.
+        """
+        raise NotImplementedError
+        
+        
+    def add_to_many(self, owner, target):
+        """
+        Add one model to a group
+        """
+        raise NotImplementedError
+        
+        
+    def remove_from_many(self, owner, target):
+        """
+        Remove one model from a group
+        """
+        raise NotImplementedError
+        
+        
+        
+class Remote(StoragePolicy):
+    """
+    Reference models by storing the owner's id in a field.
+    """
+    
+    def __init__(self, id_field):
+        self.id_field = id_field
+        
+        
+    def get_target_reference_field(self, owner):
+        return self.id_field, None
+        
+        
+    def get_one(self, owner, model):
+        doc = model.get_collection().find_one(
+            {
+                self.id_field: owner._id
+            })
+        
+        if not doc:
+            return None
+        
+        return model(**doc)
+        
+        
+    def set_one(self, owner, target):
+        target.get_collection().update(
+            {'_id':target._id},
+            {
+                '$set': { self.id_field: owner._id }
+            }
         )
+        target._reference_fields[self.id_field] = owner._id
+        
+        
+    def remove_one(self, owner, target):
+        target.get_collection().update(
+            {'_id':target._id},
+            {
+                '$unset': { self.id_field: True }
+            }
+        )
+        target._reference_fields[self.id_field] = None
+        
+        
+    def get_many(self, owner, model, spec=None):
+        if spec is None:
+            spec = {}
+        spec[self.id_field] = owner._id
+        return CursorProxy(model, model.get_collection().find(spec))
+        
+        
+    def add_to_many(self, owner, target):
+        self.set_one(owner, target)
+        
+        
+    def remove_from_many(self, owner, target):
+        self.remove_one(owner, target)
+        
+        
+        
+class RemoteList(Remote):
+    """
+    Reference models by storing the owner's id in a list field with other ids.
+    """
     
-    def remove(self, owner):
-        if self.cascade and not self.embedded:
-            self.get_model().get_collection().remove({ self.field: owner._id })
-    
-    
-class ManyInstance(object):
-    
-    def __init__(self, relationship, owner):
-        self.relationship = relationship
-        self.owner = owner
-        
-    def find_one(self, spec_or_id=None, *args, **kwargs):
-        q = { self.relationship.field: self.owner._id }
-        
-        if isinstance(spec_or_id, ObjectId):
-            q['_id'] = spec_or_id
-        elif spec_or_id is not None:
-            q.update(spec_or_id)
-        
-        fields = self.relationship.model.get_collection().find_one(q, *args, **kwargs)
-        
-        if fields:
-            return self.relationship.get_model()(**fields)
+    def get_target_reference_field(self, target):
+        return self.id_field, []
         
         
-    def find(self, spec=None, *args, **kwargs):
-        q = { self.relationship.field: self.owner._id }
-        
-        if spec is not None:
-            q.update(spec)
-        
-        return CursorProxy(self.relationship.get_model(), 
-            self.relationship.get_model().get_collection().find(q, *args, **kwargs))
-        
-        
-    def add(self, obj):
-        assert isinstance(obj, self.relationship.get_model()), "Expected a '%s' object" % self.relationship.get_model().__name__
-        obj._fields[self.relationship.field] = self.owner._id
-        obj.save()
-    
-    
-class One(Relationship):
-    
-    def __init__(self, model, field=None, *args, **kwargs):
-        super(One, self).__init__(model, *args, **kwargs)
-        
-        if field is None:
-            self.field = self.get_default_field_name()
-        else:
-            self.field = field
-            
-            
-    def get(self, owner):
-        if id:
-            if self.embedded:
-                fields = owner._fields.get(self.field)
-            else:
-                id = owner._fields.get(self.field)
-                fields = self.get_model().get_collection().find_one({'_id': id})
-                
-            if fields:
-                return self.get_model()(**fields)
-            
-            
-    def set(self, owner, obj):
-        assert isinstance(obj, self.get_model()), "Expected a '%s' object" % self.get_model().__name__
-        
-        if obj is None:
-            owner._fields.pop(self.field)
-        
-        if self._embedded:
-            owner._fields[self.field] = obj._fields
-            obj.embedded = True
-        else:
-            assert '_id' in obj._fields, "Trying to add an unsaved '%s' object to a relationship" % self.get_model().__name__
-            owner._fields[self.field] = obj._id
-        
-        return obj
-        
-        
-    def remove(self, owner):
-        if not self.cascade:
+    def set_one(self, owner, target):
+        if owner._id in target.reference_fields[self.id_field]:
             return
+            
+        target.get_collection().update(
+            {'_id':target._id},
+            {
+                '$addToSet': { self.id_field: owner._id }
+            }
+        )
+        target._reference_fields[self.id_field].append(owner._id)
         
-        if not self.embedded:
-            id = owner._fields.get(self.field)
-            if id and self.cascade:
-                self.get_model().get_collection().remove({ '_id': id })
-                
+        
+    def remove_one(self, owner, target):
+        if owner._id in target._reference_fields[self.id_field]:
+            return
+        target._reference_fields[self.id_field].remove(owner._id)
+        target.get_collection().update(
+            {'_id':target._id},
+            {
+                '$pull': { self.id_field: owner._id }
+            }
+        )
+
+
+class Local(StoragePolicy):
+    """Reference a model(s) using a local field"""
+    
+    def __init__(self, id_field):
+        self.id_field = id_field
+        
+        
+    def get_owner_reference_field(self, owner):
+        return self.id_field, None
+        
+        
+    def get_one(self, owner, model):
+        if owner._reference_fields[self.id_field] is None:
+            return None
+            
+        doc = model.get_collection().find_one(owner._reference_fields[self.id_field])
+        
+        if not doc:
+            return None
+        
+        return model(**doc)
+        
+        
+    def set_one(self, owner, target):
+        owner.get_collection().update(
+            {'_id':owner._id},
+            {
+                '$set': { self.id_field: target._id }
+            }
+        )
+        owner._reference_fields[self.id_field] = target._id
+        
+        
+    def remove_one(self, owner, target):
+        owner.get_collection().update(
+            {'_id':owner._id},
+            {
+                '$unset': { self.id_field: True }
+            }
+        )
+        owner._reference_fields[self.id_field] = None
+        
+        
+    def get_many(self, owner, model, spec=None):
+        if self.id_field not in owner._reference_fields:
+            return CursorProxy(model, None)
+        if spec is None:
+            spec = {}
+        spec['_id'] = {'$in':owner._reference_fields[self.id_field]}
+        return CursorProxy(model, model.get_collection().find(spec))
+        
+        
+    def add_to_many(self, owner, target):
+        self.set_one(owner, target)
+        
+        
+    def remove_from_many(self, owner, target):
+        self.remove_one(owner, target)
+        
+        
+        
+class LocalList(Local):
+    
+    def get_owner_reference_field(self, owner):
+        return self.id_field, []
+        
+        
+    def add_to_many(self, owner, target):
+        if target._id in owner._reference_fields[self.id_field]:
+            return
+            
+        owner.get_collection().update(
+            {'_id':owner._id},
+            {
+                '$addToSet': { self.id_field: target._id }
+            }
+        )
+        owner._reference_fields[self.id_field].append(target._id)
+        
+        
+    def remove_one(self, owner, target):
+        if target._id not in owner._reference_fields[self.id_field]:
+            return
+            
+        owner._reference_fields[self.id_field].remove(target._id)
+        owner.get_collection().update(
+            {'_id':owner._id},
+            {
+                '$pull': { self.id_field: target._id }
+            }
+        )
+
+
+
+class Join(StoragePolicy):
+    """
+    Reference models using a join collection
+    """
+    
+    def __init__(self, collection_name, owner_id_field, target_id_field):
+        self.collection_name = collection_name
+        self.collection = None
+        self.owner_id_field = owner_id_field
+        self.target_id_field = target_id_field
+        
+        
+    def get_collection(self):
+        if not self.collection:
+            self.collection = connection.database[self.collection_name]
+        return self.collection
+        
+        
+    def get_one(self, owner, model):
+        join_doc = self.get_collection().find_one(
+            {
+                self.owner_id_field: owner._id
+            })
+        
+        if not join_doc:
+            return None
+        
+        doc = model.get_collection().find_one(join_doc['_id'])
+        
+        if not doc:
+            return None
+        
+        return model(**doc)
+        
+        
+    def set_one(self, owner, target):
+        self.get_collection().update(
+            {
+                self.owner_id_field: owner._id,
+            },
+            {
+                '$set': {
+                    self.target_id_field: target._id
+                }
+            },
+            upsert=True
+        )
+        
+        
+    def remove_one(self, owner, target):
+        self.get_collection().remove(
+            {
+                self.owner_id_field: owner._id,
+                self.target_id_field: target._id
+            }
+        )
+        
+        
+    def get_many(self, owner, model, spec=None):
+        join_docs = self.get_collection().find(
+                                    { self.owner_id_field: owner._id })
+        
+        if join_docs.count() == 0:
+            return CursorProxy(model, join_docs)
+        
+        target_ids = [doc['_id'] for doc in join_docs]
+        return CursorProxy(model, { '_id': {'$in': target_ids} })
+        
+        
+    def add_to_many(self, owner, target):
+        self.get_collection().update(
+            {
+                self.owner_id_field: owner._id,
+                self.target_id_field: target._id
+            },
+            upsert=True
+        )
+        
+        
+    def remove_from_many(self, owner, target):
+        self.remove_one(owner, target)

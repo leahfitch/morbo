@@ -7,6 +7,7 @@ removing and updating instances using almost the same API as pymongo.
 """
 from validators import Validator, InvalidError, InvalidGroupError
 from cursor import CursorProxy
+from references import Reference
 import connection
 
 class ModelMeta(type):
@@ -125,10 +126,12 @@ class Model(object):
             t.save() # ok, we are in the db now
             
         """
-        
+        self._reference_fields = {}
         for k,v in self.__class__.__dict__.items():
             if isinstance(v, Validator):
                 setattr(self, k, kwargs.get(k))
+            elif isinstance(v, Reference):
+                v.update_owner_reference_fields(self, kwargs)
         setattr(self, '_id', kwargs.get('_id'))
         self.remove = self._remove
     

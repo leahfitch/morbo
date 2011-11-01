@@ -5,13 +5,7 @@ import unittest
 from morbo import *
 
 
-#class User(Model):
-#    friends = Many('User', Join('user_id', 'friend_id'))
-#    posts = Many('Post', Remote('author_id'))
-#    hats = Many('Hat', LocalList('hat_ids'))
-#    weapon_of_choice = One('weapon', Local('weapon_id'))
-#    comments = Many('Comment', Embedded())
-#    steed = One('Horse', Embedded())
+connection.setup('morbotests')
 
 
 class ReferencesTestCase(unittest.TestCase):
@@ -22,6 +16,35 @@ class ReferencesTestCase(unittest.TestCase):
                 connection.database.drop_collection(c)
             except:
                 pass
+            
+            
+    def test_one_remote_create(self):
+        class B(Model):
+            skidoo = TypeOf(int)
+        
+        class A(Model):
+            b = One(B, Remote('a_id'))
+        
+        b = B(skidoo=23)
+        b.save()
+        a = A()
+        a.save()
+        a.b = b
+        
+        self.assertEqual(a.b, b)
+        
+        a = A.find_one()
+        self.assertEqual(a.b, b)
+        
+        
+    def test_one_remote_remove(self):
+        pass
+    
+    def test_one_remote_remove_owner(self):
+        pass
+    
+    def test_one_remote_remove_owner_cascade(self):
+        pass
 
 
 if __name__ == "__main__":

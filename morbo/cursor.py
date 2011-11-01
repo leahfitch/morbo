@@ -14,5 +14,7 @@ class CursorProxy(object):
         
         
     def next(self):
+        if self._cursor is None:
+            raise StopIteration
         return self._model(**self._cursor.next())
         

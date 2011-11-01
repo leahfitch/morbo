@@ -4,7 +4,7 @@ A MongoDB object mapper for puny humans.
 
 import connection
 from model import Model
-#from references import One, Many, Remote, RemoteList, Local, LocalList, Embedded
+from references import Reference, One, Many, Remote, RemoteList, Local, LocalList, Join
 from validators import *
 
 __author__ = "Elisha Cook <elisha@elishacook.com>"
