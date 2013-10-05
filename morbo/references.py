@@ -4,7 +4,7 @@ Each type can use a number of different storage policies. These policies
 define the structure of a link and are responsible for actually fetching data.
 Writing custom storage policies is supported and encouraged.
 """
-from pymongo.objectid import ObjectId
+from bson.objectid import ObjectId
 import importlib
 from cursor import CursorProxy
 import connection
