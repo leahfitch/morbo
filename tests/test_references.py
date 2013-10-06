@@ -38,7 +38,39 @@ class ReferencesTestCase(unittest.TestCase):
         
         
     def test_one_remote_remove(self):
-        pass
+        class B(Model):
+            skidoo = TypeOf(int)
+        
+        class A(Model):
+            b = One(B, Remote('a_id'))
+        
+        b = B(skidoo=23)
+        b.save()
+        a = A()
+        a.save()
+        a.b = b
+        
+        self.assertEqual(a.b, b)
+        
+        a = A.find_one()
+        self.assertEqual(a.b, b)
+        
+        a.b = None
+        
+        self.assertEqual(a.b, None)
+        
+        a = A.find_one()
+        self.assertEqual(a.b, None)
+        
+        a.b = b
+        
+        a = A.find_one()
+        self.assertEqual(a.b, b)
+        
+        del a.b
+        
+        a = A.find_one()
+        self.assertEqual(a.b, None)
     
     def test_one_remote_remove_owner(self):
         pass

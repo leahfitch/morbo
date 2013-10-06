@@ -24,8 +24,8 @@ class Reference(object):
         """
         self.model = model
         self.storage_policy = storage_policy
-        self.cascade = cascade
-        
+        self.cascade = cascade    
+    
         
     def get_model(self):
         if isinstance(self.model, basestring):
@@ -56,12 +56,21 @@ class One(Reference):
     """
     A reference to a single, lazy-loaded model.
     """
-    def get(self, owner):
+    def __get__(self, owner, cls):
         return self.storage_policy.get_one(owner, self.get_model())
         
         
-    def set(self, owner, target):
-        self.storage_policy.set_one(owner, target)
+    def __set__(self, owner, target):
+        if target == None:
+            self.__delete__(owner)
+        else:
+            self.storage_policy.set_one(owner, target)
+        
+        
+    def __delete__(self, owner):
+        target = self.__get__(owner, owner.__class__)
+        if target:
+            self.storage_policy.remove_one(owner, target)
         
         
         
@@ -99,7 +108,7 @@ class StoragePolicy(object):
         
     def get_target_reference_field(self, target):
         """
-        Get a tuple of `(field_name, default_value)` for the field the owner
+        Get a tuple of `(field_name, default_value)` for the field the target
         model needs in order to maintain the reference. If the owner field
         doesn't need any, return `None`
         """
@@ -120,7 +129,7 @@ class StoragePolicy(object):
         raise NotImplementedError
         
         
-    def remove_one(self, owner, target):
+    def remove_one(self, owner):
         """
         Remove a single model.
         """
