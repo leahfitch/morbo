@@ -7,7 +7,7 @@ from datetime import datetime
 import time
 
 
-class ValidatorsTestCase(unittest.TestCase):
+class TestAbstractValidator(unittest.TestCase):
     
     def test_validator_abstract(self):
         """
@@ -17,7 +17,7 @@ class ValidatorsTestCase(unittest.TestCase):
         self.assertRaises(NotImplementedError, v.validate, 23)
         
         
-class TextTestCase(unittest.TestCase):
+class TestText(unittest.TestCase):
         
     def test_not_text(self):
         """
@@ -103,7 +103,7 @@ class TextTestCase(unittest.TestCase):
         self.assertEqual(string, v.validate(string))
         
         
-class TestEmailCase(unittest.TestCase):
+class TestEmail(unittest.TestCase):
     
     def test_fail(self):
         """
@@ -188,10 +188,7 @@ class TestDateTime(unittest.TestCase):
         v = DateTime(use_timelib=True, use_dateutil=False)
         today = datetime.utcnow().replace(hour=0,minute=0,second=0,microsecond=0)
         
-        try:
-            self.assertEqual(today, v.validate("today"))
-        except InvalidError:
-            self.fail('timelib enabled validator didn\'t pass "today"')
+        self.assertEqual(today, v.validate("today"))
         
         
     def test_dateutil(self):
@@ -207,10 +204,7 @@ class TestDateTime(unittest.TestCase):
         v = DateTime(default_format="%d", use_timelib=False, use_dateutil=True)
         bday = datetime(1982,9,6)
         
-        try:
-            self.assertEqual(bday, v.validate('9/6/82'))
-        except InvalidError:
-            self.fail('dateutil enabled validator didn\'t pass "9/6/82"')
+        self.assertEqual(bday, v.validate('9/6/82'))
             
             
     def test_reflexive(self):

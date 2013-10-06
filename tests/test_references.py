@@ -8,7 +8,7 @@ from morbo import *
 connection.setup('morbotests')
 
 
-class ReferencesTestCase(unittest.TestCase):
+class TestReferences(unittest.TestCase):
     
     def setUp(self):
         for c in connection.database.collection_names():
@@ -73,7 +73,23 @@ class ReferencesTestCase(unittest.TestCase):
         self.assertEqual(a.b, None)
     
     def test_one_remote_remove_owner(self):
-        pass
+        class B(Model):
+            skidoo = TypeOf(int)
+        
+        class A(Model):
+            b = One(B, Remote('a_id'), cascade=True)
+            
+        b = B(skidoo=23)
+        b.save()
+        a = A()
+        a.save()
+        a.b = b
+        
+        a = A.find_one()
+        self.assertEqual(a.b, b)
+        
+        b = B.find_one(skidoo=21)
+        self.assertEqual(a.b, b)
     
     def test_one_remote_remove_owner_cascade(self):
         pass

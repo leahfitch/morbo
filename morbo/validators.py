@@ -233,6 +233,18 @@ class Email(Validator):
         return value
 
 
+try:
+    import timelib
+    strtodatetime = timelib.strtodatetime
+except ImportError:
+    strtodatetime = None
+
+try:
+    from dateutil import parser as date_parser
+    parsedate = date_parser.parse
+except ImportError:
+    parsedate = None
+
 class DateTime(Validator):
     """
     Validates many representations of date & time and converts to datetime.datetime.
@@ -247,26 +259,16 @@ class DateTime(Validator):
         v.validate("12:06am") # datetime.datetime(2011, 9, 17, 0, 6)
         v.validate(datetime.now()) # datetime.datetime(2011, 9, 17, 0, 7)
         v.validate(1316232496.342259) # datetime.datetime(2011, 9, 17, 4, 8, 16, 342259)
-        v.validate("ballon torches") # oops!
+        v.validate("baloon torches") # oops!
     """
     NOT_DATE = "Unrecognized date format"
-    
-    try:
-        import timelib
-        strtodatetime = timelib.strtodatetime
-    except ImportError:
-        try:
-            from dateutil import parser as date_parser
-            parse = date_parser.parse
-        except ImportError:
-            pass
     
     def __init__(self, default_format="%x %X", use_timelib=True, 
             use_dateutil=True, **kwargs):
         super(DateTime, self).__init__(**kwargs)
         self.default_format = default_format
-        self.use_timelib = True
-        self.use_dateutil = True
+        self.use_timelib = use_timelib
+        self.use_dateutil = use_dateutil
         
         
     def validate(self, value):
@@ -282,15 +284,15 @@ class DateTime(Validator):
         if not isinstance(value, basestring):
             raise InvalidError, "Note a date or time"
         
-        if self.use_timelib and hasattr(self, 'strtodatetime'):
+        if self.use_timelib and strtodatetime:
             try:
-                return self.strtodatetime(value)
+                return strtodatetime(value)
             except:
                 raise InvalidError(self.NOT_DATE)
         
-        if self.use_dateutil and hasattr(self, 'parse'):
+        if self.use_dateutil and parsedate:
             try:
-                return self.parse(value)
+                return parsedate(value)
             except:
                 raise InvalidError(self.NOT_DATE)
         
