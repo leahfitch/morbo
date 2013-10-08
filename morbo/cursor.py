@@ -12,6 +12,9 @@ class CursorProxy(object):
     def __getattr__(self, name):
         return getattr(self._cursor, name)
         
+    def __iter__(self):
+        for d in self._cursor:
+            yield self._model(**d)
         
     def next(self):
         if self._cursor is None:

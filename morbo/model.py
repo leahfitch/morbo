@@ -98,7 +98,15 @@ class Model(object):
         Works just like pymongo.Collection.remove(). It has a different name
         so as not to conflict with the instance method remove().
         """
-        cls.get_collection().remove(spec)
+        cascading_references = []
+        for k,v in cls.__dict__.items():
+            if isinstance(v, Reference) and v.cascade:
+                cascading_references.append(v)
+        if len(cascading_references) > 0:
+            for m in cls.find(spec):
+                m.remove()
+        else:
+            cls.get_collection().remove(spec)
     
     
     def __init__(self, **kwargs):
@@ -195,6 +203,10 @@ class Model(object):
         Remove this instance from the database.
         """
         assert self._id is not None, "Attempting to remove unsaved '%s' object." % self.__class__.__name__
+        
+        for k,v in self.__class__.__dict__.items():
+            if isinstance(v, Reference):
+                v.remove(self)
         
         self.get_collection().remove({ '_id': self._id })
         self._id = None

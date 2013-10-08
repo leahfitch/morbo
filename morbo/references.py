@@ -50,6 +50,10 @@ class Reference(object):
             k,v = f
             target._reference_fields[k] = doc.get(k, v)
         
+    def remove(self, owner):
+        if self.cascade:
+            self.storage_policy.cascade(owner, self.get_model())
+        
         
         
 class One(Reference):
@@ -156,6 +160,10 @@ class StoragePolicy(object):
         """
         raise NotImplementedError
         
+    def cascade(self, owner, model):
+        "Remove all the associated models (not just their links)"
+        raise NotImplementedError
+        
         
         
 class Remote(StoragePolicy):
@@ -185,20 +193,20 @@ class Remote(StoragePolicy):
         
     def set_one(self, owner, target):
         target.get_collection().update(
-            {'_id':target._id},
-            {
-                '$set': { self.id_field: owner._id }
-            }
+            { self.id_field: owner._id },
+            { '$unset': { self.id_field: True } }
+        )
+        target.get_collection().update(
+            { '_id':target._id },
+            { '$set': { self.id_field: owner._id } }
         )
         target._reference_fields[self.id_field] = owner._id
         
         
     def remove_one(self, owner, target):
         target.get_collection().update(
-            {'_id':target._id},
-            {
-                '$unset': { self.id_field: True }
-            }
+            { '_id':target._id },
+            { '$unset': { self.id_field: True } }
         )
         target._reference_fields[self.id_field] = None
         
@@ -216,6 +224,11 @@ class Remote(StoragePolicy):
         
     def remove_from_many(self, owner, target):
         self.remove_one(owner, target)
+        
+    def cascade(self, owner, model):
+        model.get_collection().remove({
+            self.id_field: owner._id
+        })
         
         
         
@@ -251,6 +264,11 @@ class RemoteList(Remote):
                 '$pull': { self.id_field: owner._id }
             }
         )
+        
+    def cascade(self, owner, model):
+        model.get_collection().remove({
+            self.id_field: owner._id
+        })
 
 
 class Local(StoragePolicy):
@@ -313,6 +331,11 @@ class Local(StoragePolicy):
         self.remove_one(owner, target)
         
         
+    def cascade(self, owner, model):
+        model.get_collection().remove({
+            '_id': owner._reference_fields[self.id_field]
+        })
+        
         
 class LocalList(Local):
     
@@ -344,7 +367,11 @@ class LocalList(Local):
                 '$pull': { self.id_field: target._id }
             }
         )
-
+        
+    def cascade(self, owner, model):
+        model.get_collection().remove({
+            '_id': { '$in': owner._reference_fields[self.id_field] }
+        })
 
 
 class Join(StoragePolicy):
@@ -428,3 +455,7 @@ class Join(StoragePolicy):
         
     def remove_from_many(self, owner, target):
         self.remove_one(owner, target)
+        
+        
+    def cascade(self, owner, model):
+        pass
