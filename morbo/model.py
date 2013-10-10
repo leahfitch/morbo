@@ -11,15 +11,15 @@ from references import Reference
 import connection
 
 class ModelMeta(type):
-    """
-    Just adds a collection name to the class if it doesn't
-    already have one.
-    """
     def __init__(cls, name, bases, dict):
         super(ModelMeta, cls).__init__(name, bases, dict)
         
         if 'collection_name' not in dict:
             setattr(cls, 'collection_name', name.lower())
+        
+        for k,v in dict.items():
+            if isinstance(v, (Reference,)):
+                v.setup_with_owner(cls, k)
 
 
 class Model(object):
@@ -139,7 +139,7 @@ class Model(object):
             if isinstance(v, Validator):
                 setattr(self, k, kwargs.get(k))
             elif isinstance(v, Reference):
-                v.update_owner_reference_fields(self, kwargs)
+                v.setup_reference_fields(self, kwargs)
         setattr(self, '_id', kwargs.get('_id'))
         self.remove = self._remove
     
@@ -205,8 +205,8 @@ class Model(object):
         assert self._id is not None, "Attempting to remove unsaved '%s' object." % self.__class__.__name__
         
         for k,v in self.__class__.__dict__.items():
-            if isinstance(v, Reference):
-                v.remove(self)
+            if isinstance(v, Reference) and v.cascade:
+                v.cascading_remove(self)
         
         self.get_collection().remove({ '_id': self._id })
         self._id = None

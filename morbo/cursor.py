@@ -21,3 +21,17 @@ class CursorProxy(object):
             raise StopIteration
         return self._model(**self._cursor.next())
         
+    def clone(self):
+        return CursorProxy(self, self._model, self._cursor.clone())
+        
+    def limit(self, n):
+        self._cursor.limit(n)
+        return self
+        
+    def skip(self, n):
+        self._cursor.skip(n)
+        return self
+        
+    def sort(self, key_or_list, direction=None):
+        self._cursor.sort(key_or_list, direction)
+        return self

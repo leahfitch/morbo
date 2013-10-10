@@ -9,6 +9,7 @@ import importlib
 from cursor import CursorProxy
 import connection
 
+__all__ = ['Reference', 'One', 'Many', 'Remote', 'Local', 'Join']
 
 
 class Reference(object):
@@ -23,10 +24,15 @@ class Reference(object):
         of this reference is removed.
         """
         self.model = model
-        self.storage_policy = storage_policy
-        self.cascade = cascade    
-    
+        self.cascade = cascade
+        self.name = None
         
+        if isinstance(storage_policy, (type,)):
+            self.storage_policy = storage_policy()
+        else:
+            self.storage_policy = storage_policy
+    
+    
     def get_model(self):
         if isinstance(self.model, basestring):
             parts = self.model.split('.')
@@ -37,22 +43,26 @@ class Reference(object):
         return self.model
         
         
-    def update_owner_reference_fields(self, owner, doc):
-        f = self.storage_policy.get_owner_reference_field(owner)
-        if f:
-            k,v = f
+    def get_model_name(self):
+        if isinstance(self.model, basestring):
+            return self.model
+        else:
+            return self.model.__class__.__name__
+    
+    
+    def setup_with_owner(self, owner_model, name):
+        self.name = name
+        self.storage_policy.setup_with_reference(self, owner_model.__name__, self.get_model_name())
+        
+        
+    def setup_reference_fields(self, owner, doc):
+        for k,v in self.storage_policy.get_owner_reference_fields(self, owner).items():
             owner._reference_fields[k] = doc.get(k, v)
         
         
-    def update_target_reference_fields(self, target, doc):
-        f = self.storage_policy.get_target_reference_field(target)
-        if f:
-            k,v = f
-            target._reference_fields[k] = doc.get(k, v)
-        
-    def remove(self, owner):
+    def cascading_remove(self, owner):
         if self.cascade:
-            self.storage_policy.cascade(owner, self.get_model())
+            self.storage_policy.cascade(self, owner, self.get_model())
         
         
         
@@ -61,20 +71,20 @@ class One(Reference):
     A reference to a single, lazy-loaded model.
     """
     def __get__(self, owner, cls):
-        return self.storage_policy.get_one(owner, self.get_model())
+        return self.storage_policy.get_one(self, owner, self.get_model())
         
         
     def __set__(self, owner, target):
         if target == None:
             self.__delete__(owner)
         else:
-            self.storage_policy.set_one(owner, target)
+            self.storage_policy.set_one(self, owner, target)
         
         
     def __delete__(self, owner):
         target = self.__get__(owner, owner.__class__)
         if target:
-            self.storage_policy.remove_one(owner, target)
+            self.storage_policy.remove_one(self, owner, target)
         
         
         
@@ -82,18 +92,38 @@ class Many(Reference):
     """
     Reference to a group of models.
     """
+    
+    def __get__(self, owner, cls):
+        return ManyProxy(self, owner)
+        
+    
     def find(self, owner, spec=None):
-        return self.storage_policy.get_many(
-                                owner, self.get_model(), spec)
+        return self.storage_policy.get_list(self, owner, self.get_model(), spec)
         
         
     def add(self, owner, target):
-        self.storage_policy.add_to_many(owner, target)
+        self.storage_policy.add_to_list(self, owner, target)
         
         
     def remove(self, owner, target):
-        self.storage_policy.remove_from_many(owner, target)
-
+        self.storage_policy.remove_from_list(self, owner, target)
+        
+        
+class ManyProxy(object):
+    """Proxies calls to a Many reference, passing on a predefined owner"""
+    
+    def __init__(self, reference, owner):
+        self.reference = reference
+        self.owner = owner
+        
+    def find(self, spec=None):
+        return self.reference.find(self.owner, spec)
+        
+    def add(self, target):
+        return self.reference.add(self.owner, target)
+        
+    def remove(self, target):
+        return self.reference.remove(self.owner, target)
 
 
 class StoragePolicy(object):
@@ -101,66 +131,63 @@ class StoragePolicy(object):
     This is the abstract base class for all storage policies.
     """
     
-    def get_owner_reference_field(self, owner):
+    def setup_with_reference(self, reference, owner_name, target_name):
         """
-        Get a tuple of `(field_name, default_value)` for the field the owner
-        model needs in order to maintain the reference. If the owner field
-        doesn't need any, return `None`
+        Perform any setup that needs to occur once we have access to the reference instance
+        and the owner and target model names.
         """
-        return None
+        pass
         
         
-    def get_target_reference_field(self, target):
-        """
-        Get a tuple of `(field_name, default_value)` for the field the target
-        model needs in order to maintain the reference. If the owner field
-        doesn't need any, return `None`
-        """
-        return None
+    def get_owner_reference_fields(self, reference, owner):
+        """Return a dict of field_name => default_value for fields the owner must have
+        for this storage policy to work."""
+        return {}
         
         
-    def get_one(self, owner, model):
+    def get_one(self, reference, owner, model):
         """
         Get a single model.
         """
         raise NotImplementedError
         
         
-    def set_one(self, owner, target):
+    def set_one(self, reference, owner, target):
         """
         Set a single model.
         """
         raise NotImplementedError
         
         
-    def remove_one(self, owner):
+    def remove_one(self, reference, owner):
         """
         Remove a single model.
         """
         raise NotImplementedError
         
         
-    def get_many(self, owner, model, spec=None):
+    def get_list(self, reference, owner, model, spec=None):
         """
         Get a model cursor.
         """
         raise NotImplementedError
         
         
-    def add_to_many(self, owner, target):
+    def add_to_list(self, reference, owner, target):
         """
         Add one model to a group
         """
         raise NotImplementedError
         
         
-    def remove_from_many(self, owner, target):
+    def remove_from_list(self, reference, owner, target):
         """
         Remove one model from a group
         """
         raise NotImplementedError
         
-    def cascade(self, owner, model):
+        
+    def cascade(self, reference, owner, model):
         "Remove all the associated models (not just their links)"
         raise NotImplementedError
         
@@ -168,18 +195,19 @@ class StoragePolicy(object):
         
 class Remote(StoragePolicy):
     """
-    Reference models by storing the owner's id in a field.
+    Reference models by storing the owner's id in a field on the target.
     """
     
-    def __init__(self, id_field):
+    def __init__(self, id_field=None):
         self.id_field = id_field
         
+    
+    def setup_with_reference(self, reference, owner_name, target_name):
+        if not self.id_field:
+            self.id_field = owner_name + '_id'
+                    
         
-    def get_target_reference_field(self, owner):
-        return self.id_field, None
-        
-        
-    def get_one(self, owner, model):
+    def get_one(self, reference, owner, model):
         doc = model.get_collection().find_one(
             {
                 self.id_field: owner._id
@@ -191,82 +219,44 @@ class Remote(StoragePolicy):
         return model(**doc)
         
         
-    def set_one(self, owner, target):
+    def set_one(self, reference, owner, target):
         target.get_collection().update(
             { self.id_field: owner._id },
             { '$unset': { self.id_field: True } }
         )
         target.get_collection().update(
-            { '_id':target._id },
+            { '_id': target._id },
             { '$set': { self.id_field: owner._id } }
         )
-        target._reference_fields[self.id_field] = owner._id
         
         
-    def remove_one(self, owner, target):
+    def remove_one(self, reference, owner, target):
         target.get_collection().update(
-            { '_id':target._id },
+            { '_id': target._id },
             { '$unset': { self.id_field: True } }
         )
-        target._reference_fields[self.id_field] = None
         
         
-    def get_many(self, owner, model, spec=None):
+    def get_list(self, reference, owner, model, spec=None):
         if spec is None:
             spec = {}
         spec[self.id_field] = owner._id
         return CursorProxy(model, model.get_collection().find(spec))
         
         
-    def add_to_many(self, owner, target):
-        self.set_one(owner, target)
-        
-        
-    def remove_from_many(self, owner, target):
-        self.remove_one(owner, target)
-        
-    def cascade(self, owner, model):
-        model.get_collection().remove({
-            self.id_field: owner._id
-        })
-        
-        
-        
-class RemoteList(Remote):
-    """
-    Reference models by storing the owner's id in a list field with other ids.
-    """
-    
-    def get_target_reference_field(self, target):
-        return self.id_field, []
-        
-        
-    def set_one(self, owner, target):
-        if owner._id in target.reference_fields[self.id_field]:
-            return
-            
+    def add_to_list(self, reference, owner, target):
         target.get_collection().update(
-            {'_id':target._id},
-            {
-                '$addToSet': { self.id_field: owner._id }
-            }
-        )
-        target._reference_fields[self.id_field].append(owner._id)
-        
-        
-    def remove_one(self, owner, target):
-        if owner._id in target._reference_fields[self.id_field]:
-            return
-        target._reference_fields[self.id_field].remove(owner._id)
-        target.get_collection().update(
-            {'_id':target._id},
-            {
-                '$pull': { self.id_field: owner._id }
-            }
+            { '_id': target._id },
+            { '$set': { self.id_field: owner._id } }
         )
         
-    def cascade(self, owner, model):
-        model.get_collection().remove({
+        
+    def remove_from_list(self, reference, owner, target):
+        self.remove_one(reference, owner, target)
+        
+        
+    def cascade(self, reference, owner, model):
+        model.remove({
             self.id_field: owner._id
         })
 
@@ -274,29 +264,29 @@ class RemoteList(Remote):
 class Local(StoragePolicy):
     """Reference a model(s) using a local field"""
     
-    def __init__(self, id_field):
+    def __init__(self, id_field=None):
         self.id_field = id_field
         
         
-    def get_owner_reference_field(self, owner):
-        return self.id_field, None
+    def setup_with_reference(self, reference, owner_name, target_name):
+        if not self.id_field:
+            self.id_field = reference.name
         
         
-    def get_one(self, owner, model):
-        if owner._reference_fields[self.id_field] is None:
+    def get_owner_reference_fields(self, reference, owner):
+        return { self.id_field: ([] if isinstance(reference, (Many,)) else None) }
+        
+    
+    def get_one(self, reference, owner, model):
+        if not owner._reference_fields.get(self.id_field):
             return None
-            
-        doc = model.get_collection().find_one(owner._reference_fields[self.id_field])
         
-        if not doc:
-            return None
-        
-        return model(**doc)
+        return model.find_one(owner._reference_fields[self.id_field])
         
         
-    def set_one(self, owner, target):
+    def set_one(self, reference, owner, target):
         owner.get_collection().update(
-            {'_id':owner._id},
+            { '_id': owner._id },
             {
                 '$set': { self.id_field: target._id }
             }
@@ -304,9 +294,9 @@ class Local(StoragePolicy):
         owner._reference_fields[self.id_field] = target._id
         
         
-    def remove_one(self, owner, target):
+    def remove_one(self, reference, owner, target):
         owner.get_collection().update(
-            {'_id':owner._id},
+            { '_id': owner._id },
             {
                 '$unset': { self.id_field: True }
             }
@@ -314,64 +304,44 @@ class Local(StoragePolicy):
         owner._reference_fields[self.id_field] = None
         
         
-    def get_many(self, owner, model, spec=None):
+    def get_list(self, reference, owner, model, spec=None):
         if self.id_field not in owner._reference_fields:
-            return CursorProxy(model, None)
+            return CursorProxy(model, { '_id':None } )
         if spec is None:
             spec = {}
-        spec['_id'] = {'$in':owner._reference_fields[self.id_field]}
+        spec['_id'] = { '$in': owner._reference_fields[self.id_field] }
         return CursorProxy(model, model.get_collection().find(spec))
         
         
-    def add_to_many(self, owner, target):
-        self.set_one(owner, target)
-        
-        
-    def remove_from_many(self, owner, target):
-        self.remove_one(owner, target)
-        
-        
-    def cascade(self, owner, model):
-        model.get_collection().remove({
-            '_id': owner._reference_fields[self.id_field]
-        })
-        
-        
-class LocalList(Local):
-    
-    def get_owner_reference_field(self, owner):
-        return self.id_field, []
-        
-        
-    def add_to_many(self, owner, target):
+    def add_to_list(self, reference, owner, target):
         if target._id in owner._reference_fields[self.id_field]:
             return
-            
         owner.get_collection().update(
-            {'_id':owner._id},
-            {
-                '$addToSet': { self.id_field: target._id }
-            }
+            { '_id': owner._id },
+            { '$addToSet': { self.id_field: target._id } }
         )
         owner._reference_fields[self.id_field].append(target._id)
         
         
-    def remove_one(self, owner, target):
+    def remove_from_list(self, reference, owner, target):
         if target._id not in owner._reference_fields[self.id_field]:
             return
-            
-        owner._reference_fields[self.id_field].remove(target._id)
         owner.get_collection().update(
-            {'_id':owner._id},
-            {
-                '$pull': { self.id_field: target._id }
-            }
+            { '_id': owner._id },
+            { '$pull': { self.id_field: target._id } }
         )
+        owner._reference_fields[self.id_field].remove(target._id)
         
-    def cascade(self, owner, model):
-        model.get_collection().remove({
-            '_id': { '$in': owner._reference_fields[self.id_field] }
-        })
+        
+    def cascade(self, reference, owner, model):
+        if isinstance(reference, (Many,)):
+            model.remove({
+                '_id': { '$in': owner._reference_fields[self.id_field] }
+            })
+        else:
+            model.remove({
+                '_id': owner._reference_fields[self.id_field]
+            })
 
 
 class Join(StoragePolicy):
@@ -379,11 +349,21 @@ class Join(StoragePolicy):
     Reference models using a join collection
     """
     
-    def __init__(self, collection_name, owner_id_field, target_id_field):
-        self.collection_name = collection_name
+    def __init__(self, collection_name=None, owner_id_field=None, target_id_field=None):
         self.collection = None
+        self.collection_name = collection_name
         self.owner_id_field = owner_id_field
         self.target_id_field = target_id_field
+        
+        
+    def setup_with_reference(self, reference, owner_name, target_name):
+        if not self.collection_name:
+            model_names = sorted(owner_name, target_name)
+            self.collection_name = reference.name + '_' + model_names[0] + '_' + model_names[1]
+        if not self.owner_id_field:
+            self.owner_id_field = owner_name + '_id'
+        if not self.target_id_field:
+            self.target_id_field = target_name + '_id'
         
         
     def get_collection(self):
@@ -392,7 +372,7 @@ class Join(StoragePolicy):
         return self.collection
         
         
-    def get_one(self, owner, model):
+    def get_one(self, reference, owner, model):
         join_doc = self.get_collection().find_one(
             {
                 self.owner_id_field: owner._id
@@ -409,7 +389,7 @@ class Join(StoragePolicy):
         return model(**doc)
         
         
-    def set_one(self, owner, target):
+    def set_one(self, reference, owner, target):
         self.get_collection().update(
             {
                 self.owner_id_field: owner._id,
@@ -423,7 +403,7 @@ class Join(StoragePolicy):
         )
         
         
-    def remove_one(self, owner, target):
+    def remove_one(self, reference, owner, target):
         self.get_collection().remove(
             {
                 self.owner_id_field: owner._id,
@@ -432,7 +412,7 @@ class Join(StoragePolicy):
         )
         
         
-    def get_many(self, owner, model, spec=None):
+    def get_list(self, reference, owner, model, spec=None):
         join_docs = self.get_collection().find(
                                     { self.owner_id_field: owner._id })
         
@@ -443,7 +423,7 @@ class Join(StoragePolicy):
         return CursorProxy(model, { '_id': {'$in': target_ids} })
         
         
-    def add_to_many(self, owner, target):
+    def add_to_list(self, reference, owner, target):
         self.get_collection().update(
             {
                 self.owner_id_field: owner._id,
@@ -453,9 +433,10 @@ class Join(StoragePolicy):
         )
         
         
-    def remove_from_many(self, owner, target):
+    def remove_from_list(self, reference, owner, target):
         self.remove_one(owner, target)
         
         
-    def cascade(self, owner, model):
+    def cascade(self, reference, owner, model):
         pass
+        
