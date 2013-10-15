@@ -38,7 +38,6 @@ class Reference(object):
             parts = self.model.split('.')
             n = parts.pop()
             m = importlib.import_module('.'.join(parts))
-            print m
             self.model = getattr(m, n)
         return self.model
         
@@ -47,7 +46,7 @@ class Reference(object):
         if isinstance(self.model, basestring):
             return self.model
         else:
-            return self.model.__class__.__name__
+            return self.model.__name__
     
     
     def setup_with_owner(self, owner_model, name):
@@ -358,8 +357,8 @@ class Join(StoragePolicy):
         
     def setup_with_reference(self, reference, owner_name, target_name):
         if not self.collection_name:
-            model_names = sorted(owner_name, target_name)
-            self.collection_name = reference.name + '_' + model_names[0] + '_' + model_names[1]
+            model_names = sorted([owner_name, target_name])
+            self.collection_name = model_names[0] + '_' + model_names[1]
         if not self.owner_id_field:
             self.owner_id_field = owner_name + '_id'
         if not self.target_id_field:
@@ -381,7 +380,7 @@ class Join(StoragePolicy):
         if not join_doc:
             return None
         
-        doc = model.get_collection().find_one(join_doc['_id'])
+        doc = model.get_collection().find_one(join_doc[self.target_id_field])
         
         if not doc:
             return None
@@ -438,5 +437,6 @@ class Join(StoragePolicy):
         
         
     def cascade(self, reference, owner, model):
-        pass
+        ids = [d[self.target_id_field] for d in self.get_collection().find({self.owner_id_field:owner._id})]
+        model.remove({'_id':{'$in':ids}})
         
