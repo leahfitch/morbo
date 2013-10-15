@@ -1,0 +1,3 @@
+# Morbo
+
+Morbo is another python package for mapping objects to mongodb. Its goal is to provide a friendly API that includes validation and relationships without enforcing concepts from relational databases or obscuring the already very nice pymongo query interface. There are lots of existing packages for this sort of task. Some popular ones are MongoKit, MongoEngine and Ming. Morbo was written partly because no existing package meets all of the above goals and partly because writing it is fun.

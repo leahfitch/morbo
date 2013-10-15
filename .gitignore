@@ -5,3 +5,4 @@ build
 _build
 *.egg-info
 *.egg
+docs-html/*
