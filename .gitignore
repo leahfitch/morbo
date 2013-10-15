@@ -6,3 +6,5 @@ _build
 *.egg-info
 *.egg
 docs-html/*
+.coverage
+cover/*

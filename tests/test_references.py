@@ -569,6 +569,106 @@ class TestReferences(unittest.TestCase):
         a.remove()
         
         self.assertEqual(B.find().count(), 0)
+        
+    def test_many_join_create(self):
+        """Should be able to create a join reference to many objects"""
+        class B(Model):
+            skidoo = TypeOf(int)
+            
+        class A(Model):
+            bs = Many(B, Join)
+            
+        a = A()
+        a.save()
+        
+        for i in range(1,11):
+            b = B()
+            b.skidoo = 23 * i
+            b.save()
+            a.bs.add(b)
+        
+        bs = list(a.bs.find().sort([('skidoo', 1)]))
+        
+        self.assertEqual(len(bs), 10)
+        self.assertEqual([b.skidoo for b in bs], [23*i for i in range(1,11)])
+        
+        
+    def test_many_join_remove(self):
+        """Should be able to remove a target from a join many reference"""
+        class B(Model):
+            skidoo = TypeOf(int)
+            
+        class A(Model):
+            bs = Many(B, Join)
+            
+        a = A()
+        a.save()
+        
+        for i in range(1,11):
+            b = B()
+            b.skidoo = 23 * i
+            b.save()
+            a.bs.add(b)
+        
+        self.assertEqual(a.bs.find().count(), 10)
+        
+        b = a.bs.find({'skidoo':69}).next()
+        
+        self.assertEqual(b.skidoo, 69)
+        
+        a.bs.remove(b)
+        
+        self.assertEqual(a.bs.find().count(), 9)
+        self.assertEqual(a.bs.find({'skidoo':69}).count(), 0)
+        
+        
+    def test_many_join_remove_owner(self):
+        """Should be able to remove an owner without removing its many join targets"""
+        class B(Model):
+            skidoo = TypeOf(int)
+            
+        class A(Model):
+            bs = Many(B, Join)
+            
+        a = A()
+        a.save()
+        
+        for i in range(1,11):
+            b = B()
+            b.skidoo = 23 * i
+            b.save()
+            a.bs.add(b)
+        
+        self.assertEqual(a.bs.find().count(), 10)
+        self.assertEqual(B.find().count(), 10)
+        
+        a.remove()
+        
+        self.assertEqual(B.find().count(), 10)
+        
+    def test_many_join_remove_owner_cascade(self):
+        """Should be able to remove an owner and its many join targets if cascade is true"""
+        class B(Model):
+            skidoo = TypeOf(int)
+            
+        class A(Model):
+            bs = Many(B, Join, cascade=True)
+            
+        a = A()
+        a.save()
+        
+        for i in range(1,11):
+            b = B()
+            b.skidoo = 23 * i
+            b.save()
+            a.bs.add(b)
+        
+        self.assertEqual(a.bs.find().count(), 10)
+        self.assertEqual(B.find().count(), 10)
+        
+        a.remove()
+        
+        self.assertEqual(B.find().count(), 0)
 
 
 if __name__ == "__main__":

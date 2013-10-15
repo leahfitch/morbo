@@ -418,8 +418,11 @@ class Join(StoragePolicy):
         if join_docs.count() == 0:
             return CursorProxy(model, join_docs)
         
-        target_ids = [doc['_id'] for doc in join_docs]
-        return CursorProxy(model, { '_id': {'$in': target_ids} })
+        if spec is None:
+            spec = {}
+        
+        spec['_id'] = {'$in': [doc[self.target_id_field] for doc in join_docs]}
+        return CursorProxy(model, model.get_collection().find(spec))
         
         
     def add_to_list(self, reference, owner, target):
@@ -428,12 +431,15 @@ class Join(StoragePolicy):
                 self.owner_id_field: owner._id,
                 self.target_id_field: target._id
             },
+            {
+                '$set': {}
+            },
             upsert=True
         )
         
         
     def remove_from_list(self, reference, owner, target):
-        self.remove_one(owner, target)
+        self.remove_one(reference, owner, target)
         
         
     def cascade(self, reference, owner, model):
