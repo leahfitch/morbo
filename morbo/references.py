@@ -9,7 +9,7 @@ import importlib
 from cursor import CursorProxy
 import connection
 
-__all__ = ['Reference', 'One', 'Many', 'Remote', 'Local', 'Join']
+__all__ = ['Reference', 'One', 'Many', 'Remote', 'RemoteList', 'Local', 'Join']
 
 
 class Reference(object):
@@ -37,8 +37,15 @@ class Reference(object):
         if isinstance(self.model, basestring):
             parts = self.model.split('.')
             n = parts.pop()
-            m = importlib.import_module('.'.join(parts))
-            self.model = getattr(m, n)
+            m = globals().get(n)
+            if m:
+                self.model = m
+            elif len(parts) > 0:
+                m = importlib.import_module('.'.join(parts))
+                self.model = getattr(m, n)
+            else:
+                raise ValueError, "Could not find the model class '%s'" % self.model
+                
         return self.model
         
         
@@ -248,6 +255,39 @@ class Remote(StoragePolicy):
             { '_id': target._id },
             { '$set': { self.id_field: owner._id } }
         )
+        
+        
+    def remove_from_list(self, reference, owner, target):
+        self.remove_one(reference, owner, target)
+        
+        
+    def cascade(self, reference, owner, model):
+        model.remove({
+            self.id_field: owner._id
+        })
+        
+        
+class RemoteList(Remote):
+    """
+    Reference models by storing the owner's id in a list field on the target.
+    """
+        
+    def set_one(self, reference, owner, target):
+        target.get_collection().update(
+            { '_id': target._id },
+            { '$addToSet': { self.id_field: owner._id } }
+        )
+        
+        
+    def remove_one(self, reference, owner, target):
+        target.get_collection().update(
+            { '_id': target._id },
+            { '$pull': { self.id_field: owner._id } }
+        )
+        
+        
+    def add_to_list(self, reference, owner, target):
+        self.set_one(reference, owner, target)
         
         
     def remove_from_list(self, reference, owner, target):

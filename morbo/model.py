@@ -10,6 +10,8 @@ from cursor import CursorProxy
 from references import Reference
 import connection
 
+__all__ = ['Model']
+
 class ModelMeta(type):
     def __init__(cls, name, bases, dict):
         super(ModelMeta, cls).__init__(name, bases, dict)

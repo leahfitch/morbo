@@ -8,6 +8,13 @@ from morbo import *
 connection.setup('morbotests')
 
 
+class Foo(Model):
+    bars = Many('tests.test_references.Bar', Local)
+    
+class Bar(Model):
+    foos = Many(Foo, RemoteList('bars'))
+
+
 class TestReferences(unittest.TestCase):
     
     def setUp(self):
@@ -126,13 +133,69 @@ class TestReferences(unittest.TestCase):
         self.assertEqual(b, None)
         
         
-    def test_one_remote_remove_owner_cascade(self):
-        """Should be able to remove all owners of a remote reference to one model and the target if cascade is True"""
+    def test_one_remotelist_create(self):
+        """Should be able to create a remotelist reference to one model"""
         class B(Model):
             skidoo = TypeOf(int)
         
         class A(Model):
-            b = One(B, Remote, cascade=True)
+            b = One(B, RemoteList)
+        
+        b = B(skidoo=23)
+        b.save()
+        a = A()
+        a.save()
+        a.b = b
+        
+        self.assertEqual(a.b, b)
+        
+        a = A.find_one()
+        self.assertEqual(a.b, b)
+        
+        
+    def test_one_remotelist_remove(self):
+        """Should be able to remove a remotelist reference to one model"""
+        class B(Model):
+            skidoo = TypeOf(int)
+        
+        class A(Model):
+            b = One(B, RemoteList)
+        
+        b = B(skidoo=23)
+        b.save()
+        a = A()
+        a.save()
+        a.b = b
+        
+        self.assertEqual(a.b, b)
+        
+        a = A.find_one()
+        self.assertEqual(a.b, b)
+        
+        a.b = None
+        
+        self.assertEqual(a.b, None)
+        
+        a = A.find_one()
+        self.assertEqual(a.b, None)
+        
+        a.b = b
+        
+        a = A.find_one()
+        self.assertEqual(a.b, b)
+        
+        del a.b
+        
+        a = A.find_one()
+        self.assertEqual(a.b, None)
+    
+    def test_one_remotelist_remove_owner(self):
+        """Should be able to remove the owner of a remotelist reference to one model without removing the target"""
+        class B(Model):
+            skidoo = TypeOf(int)
+        
+        class A(Model):
+            b = One(B, RemoteList)
             
         b = B(skidoo=23)
         b.save()
@@ -146,7 +209,33 @@ class TestReferences(unittest.TestCase):
         b = B.find_one({'skidoo':23})
         self.assertEqual(a.b, b)
         
-        A.remove()
+        a.remove()
+        
+        bb = B.find_one({'skidoo':23})
+        self.assertEqual(bb, b)
+        
+        
+    def test_one_remotelist_remove_owner_cascade(self):
+        """Should be able to remove the owner of a remotelist reference to one model and the target if cascade is True"""
+        class B(Model):
+            skidoo = TypeOf(int)
+        
+        class A(Model):
+            b = One(B, RemoteList, cascade=True)
+            
+        b = B(skidoo=23)
+        b.save()
+        a = A()
+        a.save()
+        a.b = b
+        
+        a = A.find_one()
+        self.assertEqual(a.b, b)
+        
+        b = B.find_one({'skidoo':23})
+        self.assertEqual(a.b, b)
+        
+        a.remove()
         
         b = B.find_one({'skidoo':23})
         self.assertEqual(b, None)
@@ -669,6 +758,33 @@ class TestReferences(unittest.TestCase):
         a.remove()
         
         self.assertEqual(B.find().count(), 0)
+        
+        
+    def test_many_to_many_remote(self):
+        """Should be able to create a many-to-many relationship"""
+        
+        foo = Foo()
+        foo.save()
+        
+        for i in range(0,10):
+            b = Bar()
+            b.save()
+            foo.bars.add(b)
+        
+        self.assertEqual(foo.bars.find().count(), 10)
+        
+        bar = Bar.find_one()
+        
+        self.assertEqual(bar.foos.find().next(), foo)
+        
+        foo2 = Foo()
+        foo2.save()
+        
+        bar.foos.add(foo2)
+        
+        foo2 = Foo.find_one(foo2._id)
+        
+        self.assertEqual(foo2.bars.find().next(), bar)
 
 
 if __name__ == "__main__":
