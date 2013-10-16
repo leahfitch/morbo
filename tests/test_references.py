@@ -9,11 +9,11 @@ connection.setup('morbotests')
 
 
 class Foo(Model):
-    bars = Many('tests.test_references.Bar', Local)
+    bars = Many('Bar', Local)
     
 class Bar(Model):
     foos = Many(Foo, RemoteList('bars'))
-
+    
 
 class TestReferences(unittest.TestCase):
     

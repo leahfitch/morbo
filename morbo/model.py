@@ -9,6 +9,7 @@ from validators import Validator, InvalidError, InvalidGroupError
 from cursor import CursorProxy
 from references import Reference
 import connection
+import registry
 
 __all__ = ['Model']
 
@@ -22,6 +23,8 @@ class ModelMeta(type):
         for k,v in dict.items():
             if isinstance(v, (Reference,)):
                 v.setup_with_owner(cls, k)
+        
+        registry.models["%s.%s" % (cls.__module__, cls.__name__)] = cls
 
 
 class Model(object):

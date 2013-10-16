@@ -8,6 +8,7 @@ from bson.objectid import ObjectId
 import importlib
 from cursor import CursorProxy
 import connection
+import registry
 
 __all__ = ['Reference', 'One', 'Many', 'Remote', 'RemoteList', 'Local', 'Join']
 
@@ -27,38 +28,31 @@ class Reference(object):
         self.cascade = cascade
         self.name = None
         
+        if isinstance(model, (basestring,)):
+            self.model_name = model
+        else:
+            self.model_name = model.__name__
+        
         if isinstance(storage_policy, (type,)):
             self.storage_policy = storage_policy()
         else:
             self.storage_policy = storage_policy
     
     
-    def get_model(self):
-        if isinstance(self.model, basestring):
-            parts = self.model.split('.')
-            n = parts.pop()
-            m = globals().get(n)
-            if m:
-                self.model = m
-            elif len(parts) > 0:
-                m = importlib.import_module('.'.join(parts))
-                self.model = getattr(m, n)
-            else:
-                raise ValueError, "Could not find the model class '%s'" % self.model
-                
-        return self.model
-        
-        
-    def get_model_name(self):
-        if isinstance(self.model, basestring):
-            return self.model
-        else:
-            return self.model.__name__
-    
-    
     def setup_with_owner(self, owner_model, name):
         self.name = name
-        self.storage_policy.setup_with_reference(self, owner_model.__name__, self.get_model_name())
+        self.storage_policy.setup_with_reference(self, owner_model.__name__, self.model_name)
+        
+        
+    def get_model(self, owner):
+        if isinstance(self.model, (basestring,)):
+            model_name = self.model
+            if '.' not in model_name:
+                model_name = '%s.%s' % (owner.__class__.__module__, model_name)
+            self.model = registry.models.get(model_name)
+            if not self.model:
+                raise ValueError, "The model class '%s' is not registered. Please import it before use." % model_name
+        return self.model
         
         
     def setup_reference_fields(self, owner, doc):
@@ -68,7 +62,7 @@ class Reference(object):
         
     def cascading_remove(self, owner):
         if self.cascade:
-            self.storage_policy.cascade(self, owner, self.get_model())
+            self.storage_policy.cascade(self, owner, self.get_model(owner))
         
         
         
@@ -77,7 +71,7 @@ class One(Reference):
     A reference to a single, lazy-loaded model.
     """
     def __get__(self, owner, cls):
-        return self.storage_policy.get_one(self, owner, self.get_model())
+        return self.storage_policy.get_one(self, owner, self.get_model(owner))
         
         
     def __set__(self, owner, target):
@@ -104,7 +98,7 @@ class Many(Reference):
         
     
     def find(self, owner, spec=None):
-        return self.storage_policy.get_list(self, owner, self.get_model(), spec)
+        return self.storage_policy.get_list(self, owner, self.get_model(owner), spec)
         
         
     def add(self, owner, target):
