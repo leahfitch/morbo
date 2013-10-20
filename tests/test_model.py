@@ -109,6 +109,26 @@ class TestModel(unittest.TestCase):
         Foo.remove({'bars':{'$lt':10}})
         
         self.assertEqual(10, Foo.count())
+        
+        
+    def test_indexing(self):
+        class Blubber(Model):
+            weight = TypeOf(float)
+            volume = TypeOf(float)
+            color = Enum('white', 'off-white', 'pinkish', 'tawny')
+            indexes = [
+                'color',
+                [('color', 1), ('weight', -1)]
+            ]
+        
+        q = Blubber.find({'color':'white'}).explain()
+        self.assertTrue(q['cursor'].startswith('BtreeCursor'))
+        
+        q = Blubber.find({'color':'white', 'weight': 23.32}).explain()
+        self.assertTrue(q['cursor'].startswith('BtreeCursor'))
+        
+        q = Blubber.find({'foo':'bar'}).explain()
+        self.assertEqual(q['cursor'], 'BasicCursor')
 
 
 if __name__ == "__main__":

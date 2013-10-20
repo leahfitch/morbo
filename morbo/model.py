@@ -23,6 +23,11 @@ class ModelMeta(type):
         for k,v in dict.items():
             if isinstance(v, (Reference,)):
                 v.setup_with_owner(cls, k)
+                
+        if 'indexes' in dict:
+            col = cls.get_collection()
+            for key_or_list in dict['indexes']:
+                col.ensure_index(key_or_list)
         
         registry.models["%s.%s" % (cls.__module__, cls.__name__)] = cls
 
