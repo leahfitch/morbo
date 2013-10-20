@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name = 'morbo',
-    version = '1.0.0',
+    version = '1.0.1',
     packages = ['morbo'],
     description = 'A MongoDB object mapper for puny humans.',
     author = 'Elisha Cook',
