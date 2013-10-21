@@ -205,7 +205,23 @@ class Model(object):
         """
         d = self.validate()
         self.get_collection().save(d)
-        self._id = d['_id']
+        if not self._id:
+            self._id = d['_id']
+            self.was_created()
+        else:
+            self.was_modified()
+        
+        
+    def was_created(self):
+        """
+        Called after the model is saved for the first time.
+        """
+        
+        
+    def was_modified(self):
+        """
+        Called each time the model is saved after the first save.
+        """
         
         
     def _remove(self):

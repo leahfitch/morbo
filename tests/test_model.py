@@ -129,6 +129,32 @@ class TestModel(unittest.TestCase):
         
         q = Blubber.find({'foo':'bar'}).explain()
         self.assertEqual(q['cursor'], 'BasicCursor')
+        
+        
+    def test_hooks(self):
+        
+        class Snowflake(Model):
+            name = Text()
+            
+            created_flag = False
+            modified_flag = False
+            
+            def was_created(self):
+                self.created_flag = True
+                
+            def was_modified(self):
+                self.modified_flag = True
+                
+        s = Snowflake()
+        s.name = 'Fred'
+        self.assertFalse(s.created_flag)
+        s.save()
+        self.assertTrue(s.created_flag)
+        
+        s.name = 'Tootsie'
+        self.assertFalse(s.modified_flag)
+        s.save()
+        self.assertTrue(s.modified_flag)
 
 
 if __name__ == "__main__":
