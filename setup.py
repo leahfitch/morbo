@@ -1,8 +1,9 @@
 from setuptools import setup
+execfile('morbo/version.py')
 
 setup(
     name = 'morbo',
-    version = '1.0.2',
+    version = __version__,
     packages = ['morbo'],
     description = 'A MongoDB object mapper for puny humans.',
     author = 'Elisha Cook',
