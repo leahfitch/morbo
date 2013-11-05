@@ -7,7 +7,7 @@ removing and updating instances using almost the same API as pymongo.
 """
 from validators import Validator, InvalidError, InvalidGroupError
 from cursor import CursorProxy
-from references import Reference
+from relationships import Relationship
 import connection
 import registry
 
@@ -21,15 +21,22 @@ class ModelMeta(type):
             setattr(cls, 'collection_name', name.lower())
         
         for k,v in dict.items():
-            if isinstance(v, (Reference,)):
-                v.setup_with_owner(cls, k)
+            if isinstance(v, (Relationship,)):
+                v.setup(k, cls)
                 
         if 'indexes' in dict:
             col = cls.get_collection()
             for key_or_list in dict['indexes']:
                 col.ensure_index(key_or_list)
         
-        registry.models["%s.%s" % (cls.__module__, cls.__name__)] = cls
+        full_name = "%s.%s" % (cls.__module__, cls.__name__)
+        registry.models[full_name] = cls
+        
+        if full_name in registry.back_references:
+            for name, inverse_rel in registry.back_references[full_name].items():
+                rel = inverse_rel.inverse()
+                setattr(cls, name, rel)
+                rel.setup(name, cls)
 
 
 class Model(object):
@@ -108,11 +115,11 @@ class Model(object):
         Works just like pymongo.Collection.remove(). It has a different name
         so as not to conflict with the instance method remove().
         """
-        cascading_references = []
+        cascading_relationships = []
         for k,v in cls.__dict__.items():
-            if isinstance(v, Reference) and v.cascade:
-                cascading_references.append(v)
-        if len(cascading_references) > 0:
+            if isinstance(v, Relationship) and v.cascade:
+                cascading_relationships.append(v)
+        if len(cascading_relationships) > 0:
             for m in cls.find(spec):
                 m.remove()
         else:
@@ -148,8 +155,8 @@ class Model(object):
         for k,v in self.__class__.__dict__.items():
             if isinstance(v, Validator):
                 setattr(self, k, kwargs.get(k))
-            elif isinstance(v, Reference):
-                v.setup_reference_fields(self, kwargs)
+            elif isinstance(v, Relationship):
+                self._reference_fields[k] = kwargs.get(k)
         setattr(self, '_id', kwargs.get('_id'))
         self.remove = self._remove
     
@@ -157,7 +164,7 @@ class Model(object):
     def __str__(self):
         return "<%s \"%s\">" % (
             self.__class__.__name__,
-            self._id if self._id else '"not saved"'
+            self._id if self._id else "unsaved"
         )
         
         
@@ -231,7 +238,7 @@ class Model(object):
         assert self._id is not None, "Attempting to remove unsaved '%s' object." % self.__class__.__name__
         
         for k,v in self.__class__.__dict__.items():
-            if isinstance(v, Reference) and v.cascade:
+            if isinstance(v, Relationship) and v.cascade:
                 v.cascading_remove(self)
         
         self.get_collection().remove({ '_id': self._id })
