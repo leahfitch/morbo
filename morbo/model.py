@@ -115,11 +115,11 @@ class Model(object):
         Works just like pymongo.Collection.remove(). It has a different name
         so as not to conflict with the instance method remove().
         """
-        cascading_relationships = []
+        cascading_relationships = 0
         for k,v in cls.__dict__.items():
-            if isinstance(v, Relationship) and v.cascade:
-                cascading_relationships.append(v)
-        if len(cascading_relationships) > 0:
+            if isinstance(v, Relationship) and v._cascade:
+                cascading_relationships += 1
+        if cascading_relationships > 0:
             for m in cls.find(spec):
                 m.remove()
         else:
@@ -217,6 +217,10 @@ class Model(object):
             self.was_created()
         else:
             self.was_modified()
+            
+            
+    def assert_saved(self):
+        assert self._id is not None, "Expected a saved model (i.e., one with an id)."
         
         
     def was_created(self):
@@ -238,8 +242,8 @@ class Model(object):
         assert self._id is not None, "Attempting to remove unsaved '%s' object." % self.__class__.__name__
         
         for k,v in self.__class__.__dict__.items():
-            if isinstance(v, Relationship) and v.cascade:
-                v.cascading_remove(self)
+            if isinstance(v, Relationship):
+                v.on_owner_remove(self)
         
         self.get_collection().remove({ '_id': self._id })
         self._id = None
