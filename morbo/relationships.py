@@ -10,7 +10,7 @@ class Relationship(object):
         self._name = None
         self._owner_cls = None
         self._inverse = None
-        self._cascade = False
+        self._cascade = cascade
         
         
     def setup(self, name, owner_cls):
@@ -49,11 +49,8 @@ class Relationship(object):
         if not self._inverse:
             self._inverse = self.create_inverse()
             self._inverse._inverse = self
+            self._inverse._inverse_name = self._name
         return self._inverse
-            
-            
-    def create_inverse(self):
-        raise NotImplementedError
         
         
     def validate_inverse(self, rel):
@@ -64,9 +61,13 @@ class Relationship(object):
             raise TypeError, "Expected %s to have a target of type %s" % (rel.get_name(), inverse_rel.get_target_model_name())
         
         
+    def create_inverse(self):
+        raise NotImplementedError
+        
+        
     def on_owner_remove(self, owner):
         if self._cascade:
-            self.cascade()
+            self.cascade(owner)
         
         
     def is_target_model_defined(self):
@@ -142,7 +143,10 @@ class One(Relationship):
     def set(self, owner, target, update_inverse=True):
         target.assert_saved()
         self._cache = target
-        owner._reference_fields[self._name] = target._id
+        
+        for obj in registry.get_model_instances(owner._id):
+            obj._reference_fields[self._name] = target._id
+            
         if owner._id:
             owner.get_collection().update(
                 {'_id':owner._id},
@@ -158,8 +162,8 @@ class One(Relationship):
         
 class OneToOne(One):
     
-    def __init__(self, target_model, inverse=None):
-        Relationship.__init__(self, target_model, inverse)
+    def __init__(self, target_model, inverse=None, cascade=False):
+        Relationship.__init__(self, target_model, inverse, cascade)
         
     def create_inverse(self):
         return OneToOne(self._owner_cls)
@@ -189,6 +193,10 @@ class ManyProxy(object):
         
     def count(self, spec=None):
         return self._rel.count(self._owner, spec)
+        
+        
+    def __iter__(self):
+        return self.find().__iter__()
         
         
     def find_one(self, spec_or_id=None):
@@ -227,6 +235,18 @@ class Many(Relationship):
     
     def spec(self, owner):
         raise NotImplementedError
+        
+        
+    def get_spec_from_target_or_spec(self, target_or_spec):
+        if isinstance(target_or_spec, self.get_target_model()):
+            target_or_spec.assert_saved()
+            spec = {'_id':target_or_spec._id}
+        else:
+            spec = self.spec()
+            if target_or_spec:
+                target_or_spec.update(spec)
+                spec = target_or_spec
+        return spec
         
         
     def count(self, owner, spec=None):
@@ -282,14 +302,7 @@ class OneToMany(Many):
         
         
     def remove(self, owner, target_or_spec=None):
-        if isinstance(target_or_spec, self.get_target_model()):
-            target_or_spec.assert_saved()
-            spec = {'_id':target_or_spec._id}
-        else:
-            spec = self.spec()
-            if target_or_spec:
-                target_or_spec.update(spec)
-                spec = target_or_spec
+        spec = self.get_spec_from_target_or_spec(target_or_spec)
         self.get_target_model().get_collection().update(
             spec,
             {'$unset':{self._inverse_name:True}}
@@ -298,7 +311,7 @@ class OneToMany(Many):
         
     def cascade(self, owner):
         if owner._id:
-            self.get_target_model().remove(self.spec())
+            self.get_target_model().remove(self.spec(owner))
     
     
 class ManyToMany(Many):
@@ -334,18 +347,64 @@ class ManyToMany(Many):
         
         
     def _add_local(self, owner, target):
-        owner.get_collection().update(
-            {'_id':owner._id},
-            {'$addToSet':{self._name:target._id}}
-        )
-        target.get_collection().update(
-            {'_id':target._id},
-            {'$addToSet':{self._inverse_name:owner._id}}
-        )
+        if not owner._reference_fields.get(self._name):
+            owner._reference_fields[self._name] = []
+        if target._id not in owner._reference_fields[self._name]:
+            for obj in registry.get_model_instances(owner._id):
+                obj._reference_fields[self._name].append(target._id)
+            owner.get_collection().update(
+                {'_id':owner._id},
+                {'$addToSet':{self._name:target._id}}
+            )
+            target.get_collection().update(
+                {'_id':target._id},
+                {'$addToSet':{self._inverse_name:owner._id}}
+            )
         
         
     def remove(self, owner, target_or_spec=None):
+        owner.assert_saved()
+        if self._join:
+            self._remove_join(owner, target_or_spec)
+        else:
+            self._remove_local(owner, target_or_spec)
+            
+            
+    def _remove_join(self, owner, target_or_spec):
         pass
+        
+        
+    def _remove_local(self, owner, target_or_spec):
+        spec = self.get_spec_from_target_or_spec(target_or_spec)
+        target_collection = self.get_target_model().get_collection()
+        target_ids = [r['_id'] for r in target_collection.find(spec, [])]
+        
+        if len(target_ids) == 0:
+            return
+        
+        
+        filtered_ids = filter(lambda x: x not in target_ids, owner._reference_fields[self._name])
+        
+        for obj in registry.get_model_instances(owner._id):
+            obj._reference_fields[self._name] = filtered_ids
+            
+        owner.get_collection().update(
+            {'_id':owner._id},
+            {'$pullAll':{self._name:filtered_ids}}
+        )
+        
+        for target_id in target_ids:
+            for obj in registry.get_model_instances(target_id):
+                field = obj._reference_fields[self._inverse_name]
+                try:
+                    field.remove(owner._id)
+                except ValueError:
+                    pass
+        
+        target_collection.update(
+            {'_id':{'$in':target_ids}},
+            {'$pull':{self._inverse_name:owner._id}}
+        )
         
         
     def cascade(self, owner):
@@ -354,7 +413,7 @@ class ManyToMany(Many):
         
     def spec(self, owner):
         if self._join:
-            ids = list()
+            raise NotImplementedError
         else:
             return {'_id':{'$in':owner._reference_fields.get(self._name, [])}}
-        
+            

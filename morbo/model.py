@@ -159,6 +159,9 @@ class Model(object):
                 self._reference_fields[k] = kwargs.get(k)
         setattr(self, '_id', kwargs.get('_id'))
         self.remove = self._remove
+        
+        if self._id:
+            registry.add_model_instance(self)
     
     
     def __str__(self):

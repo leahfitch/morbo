@@ -3,7 +3,7 @@ class CursorProxy(object):
     def __init__(self, model, cursor):
         self._model = model
         self._cursor = cursor
-        
+    
         
     def __getitem__(self, index):
         return self._model(self._cursor.__getitem__(index))
@@ -11,6 +11,11 @@ class CursorProxy(object):
         
     def __getattr__(self, name):
         return getattr(self._cursor, name)
+    
+    
+    def __len__(self):
+        return self._cursor.count()
+    
         
     def __iter__(self):
         for d in self._cursor:
