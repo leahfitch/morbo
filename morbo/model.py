@@ -217,6 +217,7 @@ class Model(object):
         self.get_collection().save(d)
         if not self._id:
             self._id = d['_id']
+            registry.add_model_instance(self)
             self.was_created()
         else:
             self.was_modified()

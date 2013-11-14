@@ -1,4 +1,5 @@
 import registry
+import connection
 from cursor import CursorProxy
 
 
@@ -319,6 +320,7 @@ class ManyToMany(Many):
     def __init__(self, target_model, inverse=None, cascade=False, join=None):
         super(ManyToMany, self).__init__(target_model, inverse=inverse, cascade=cascade)
         self._join = join
+        self._join_collection = None
         
         
     def create_inverse(self):
@@ -343,7 +345,16 @@ class ManyToMany(Many):
         
         
     def _add_join(self, owner, target):
-        pass
+        owner_key, target_key, join_collection = self.get_join_context(owner)
+        entry = {
+            owner_key: owner._id,
+            target_key: target._id
+        }
+        join_collection.update(
+            entry,
+            {'$set': entry},
+            upsert=True
+        )
         
         
     def _add_local(self, owner, target):
@@ -363,26 +374,22 @@ class ManyToMany(Many):
         
         
     def remove(self, owner, target_or_spec=None):
-        owner.assert_saved()
-        if self._join:
-            self._remove_join(owner, target_or_spec)
-        else:
-            self._remove_local(owner, target_or_spec)
-            
-            
-    def _remove_join(self, owner, target_or_spec):
-        pass
-        
-        
-    def _remove_local(self, owner, target_or_spec):
-        spec = self.get_spec_from_target_or_spec(target_or_spec)
-        target_collection = self.get_target_model().get_collection()
-        target_ids = [r['_id'] for r in target_collection.find(spec, [])]
-        
+        target_ids = self.get_target_ids(target_or_spec)
         if len(target_ids) == 0:
             return
+            
+        if self._join:
+            self._remove_join(owner, target_ids)
+        else:
+            self._remove_local(owner, target_ids)
+            
+            
+    def _remove_join(self, owner, target_ids):
+        owner_key, target_key, join_collection = self.get_join_context(owner)
+        join_collection.remove({target_key:{'$in':target_ids}})
         
         
+    def _remove_local(self, owner, target_ids):
         filtered_ids = filter(lambda x: x not in target_ids, owner._reference_fields[self._name])
         
         for obj in registry.get_model_instances(owner._id):
@@ -401,19 +408,43 @@ class ManyToMany(Many):
                 except ValueError:
                     pass
         
-        target_collection.update(
+        self.get_target_model().get_collection().update(
             {'_id':{'$in':target_ids}},
             {'$pull':{self._inverse_name:owner._id}}
         )
         
         
+    def get_target_ids(self, target_or_spec):
+        spec = self.get_spec_from_target_or_spec(target_or_spec)
+        target_collection = self.get_target_model().get_collection()
+        return [r['_id'] for r in target_collection.find(spec, [])]
+        
+        
     def cascade(self, owner):
-        pass
+        spec = self.spec(owner)
+        self.get_target_model().remove(spec)
         
         
     def spec(self, owner):
         if self._join:
-            raise NotImplementedError
+            owner_key, target_key, join_collection = self.get_join_context(owner)
+            ids = [r[target_key] for r in join_collection.find({owner_key:owner._id}, fields=[target_key])]
         else:
-            return {'_id':{'$in':owner._reference_fields.get(self._name, [])}}
+            ids = owner._reference_fields.get(self._name, [])
+        
+        return {'_id':{'$in':ids}}
+        
+        
+    def get_join_context(self, owner):
+        if not self._join:
+            return None, None, None
+        if not self._join_collection:
+            self._owner_key = owner.__class__.__name__
+            self._target_key = self.get_target_model().__name__
+            self._join_collection = connection.database[self._join]
+            self._join_collection.ensure_index([
+                (self._owner_key, 1),
+                (self._target_key, 1)
+            ])
+        return self._owner_key, self._target_key, self._join_collection
             

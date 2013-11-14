@@ -282,5 +282,249 @@ class TestReferences(unittest.TestCase):
         self.assertEquals(doc.tags.count(), num_doc_tags-1)
         
         
+    def test_many_to_many_over_define(self):
+        tags_by_doc = {
+            "foo": ["tofu", "seitan"],
+            "bar": ["seitan"],
+            "baz": ["tempeh", "tofu"],
+            "qux": ["seitan", "tofu"],
+            "goo": ["seitan"]
+        }
+        docs_by_tag = {}
+        
+        class Document(Model):
+            content = Text()
+            tags = ManyToMany("Tag", inverse="documents")
+            
+        class Tag(Model):
+            name = Text()
+            documents = ManyToMany(Document, inverse="tags")
+        
+        tags = {}
+        docs = {}
+        
+        for content, tag_names in tags_by_doc.items():
+            doc = Document(content=content)
+            doc.save()
+            docs[content] = doc
+            
+            for n in tag_names:
+                if n not in tags:
+                    tag = Tag(name=n)
+                    tag.save()
+                    tags[n] = tag
+                doc.tags.add(tags[n])
+                if n not in docs_by_tag:
+                    docs_by_tag[n] = []
+                docs_by_tag[n].append(content)
+        
+        for d in [tags_by_doc, docs_by_tag]:
+            for k in d:
+                d[k].sort()
+        
+        for k,v in tags_by_doc.items():
+            doc = Document.find_one({'content':k})
+            self.assertEquals([tag.name for tag in doc.tags.find().sort('name')], v)
+            
+        for k,v in docs_by_tag.items():
+            tag = Tag.find_one({'name':k})
+            self.assertEquals([doc.content for doc in tag.documents.find().sort('content')], v)
+        
+        tag = Tag.find_one({'name':'seitan'})
+        self.assertEquals(tag.documents.count(), 4)
+        doc = tag.documents.find_one()
+        self.assertIn('seitan', [tag.name for tag in doc.tags])
+        num_doc_tags = doc.tags.count()
+        tag.documents.remove(doc)
+        self.assertEquals(tag.documents.count(), 3)
+        self.assertEquals(doc.tags.count(), num_doc_tags-1)
+        
+        
+    def test_many_to_many_cascade(self):
+        class Foo(Model):
+            bars = ManyToMany("Bar", inverse="foos", cascade=True)
+            
+        class Bar(Model):
+            pass
+        
+        foos = []
+        
+        for i in range(0,3):
+            f = Foo()
+            f.save()
+            for i in range(0,10):
+                b = Bar()
+                b.save()
+                f.bars.add(b)
+            foos.append(f)
+        
+        self.assertEquals(Bar.count(), 30)
+        
+        for foo in foos:
+            self.assertEquals(foo.bars.count(), 10)
+        
+        foos[0].remove()
+        
+        self.assertEquals(Bar.count(), 20)
+        
+        for foo in foos[1:]:
+            self.assertEquals(foo.bars.count(), 10)
+            
+            
+    def test_many_to_many_join(self):
+        tags_by_doc = {
+            "foo": ["tofu", "seitan"],
+            "bar": ["seitan"],
+            "baz": ["tempeh", "tofu"],
+            "qux": ["seitan", "tofu"],
+            "goo": ["seitan"]
+        }
+        docs_by_tag = {}
+        
+        class Document(Model):
+            content = Text()
+            tags = ManyToMany("Tag", inverse="documents", join="document_tag")
+            
+        class Tag(Model):
+            name = Text()
+        
+        tags = {}
+        docs = {}
+        
+        for content, tag_names in tags_by_doc.items():
+            doc = Document(content=content)
+            doc.save()
+            docs[content] = doc
+            
+            for n in tag_names:
+                if n not in tags:
+                    tag = Tag(name=n)
+                    tag.save()
+                    tags[n] = tag
+                doc.tags.add(tags[n])
+                if n not in docs_by_tag:
+                    docs_by_tag[n] = []
+                docs_by_tag[n].append(content)
+        
+        for d in [tags_by_doc, docs_by_tag]:
+            for k in d:
+                d[k].sort()
+        
+        for k,v in tags_by_doc.items():
+            doc = Document.find_one({'content':k})
+            self.assertEquals([tag.name for tag in doc.tags.find().sort('name')], v)
+            
+        for k,v in docs_by_tag.items():
+            tag = Tag.find_one({'name':k})
+            self.assertEquals([doc.content for doc in tag.documents.find().sort('content')], v)
+        
+        tag = Tag.find_one({'name':'seitan'})
+        self.assertEquals(tag.documents.count(), 4)
+        doc = tag.documents.find_one()
+        self.assertIn('seitan', [tag.name for tag in doc.tags])
+        num_doc_tags = doc.tags.count()
+        tag.documents.remove(doc)
+        self.assertEquals(tag.documents.count(), 3)
+        self.assertEquals(doc.tags.count(), num_doc_tags-1)
+        
+        
+    def test_many_to_many_join_bad_define(self):
+        with self.assertRaises(AssertionError):
+            class Document(Model):
+                tags = ManyToMany("Tag", inverse="documents", join="document_tag")
+                
+            class Tag(Model):
+                docs = ManyToMany(Document, inverse="tags", join="tag_document")
+        
+        
+    def test_many_to_many_join_overdefine(self):
+        tags_by_doc = {
+            "foo": ["tofu", "seitan"],
+            "bar": ["seitan"],
+            "baz": ["tempeh", "tofu"],
+            "qux": ["seitan", "tofu"],
+            "goo": ["seitan"]
+        }
+        docs_by_tag = {}
+        
+        class Document(Model):
+            content = Text()
+            tags = ManyToMany("Tag", inverse="documents", join="document_tag")
+            
+        class Tag(Model):
+            name = Text()
+            documents = ManyToMany(Document, inverse="tags", join="document_tag")
+        
+        tags = {}
+        docs = {}
+        
+        for content, tag_names in tags_by_doc.items():
+            doc = Document(content=content)
+            doc.save()
+            docs[content] = doc
+            
+            for n in tag_names:
+                if n not in tags:
+                    tag = Tag(name=n)
+                    tag.save()
+                    tags[n] = tag
+                doc.tags.add(tags[n])
+                if n not in docs_by_tag:
+                    docs_by_tag[n] = []
+                docs_by_tag[n].append(content)
+        
+        for d in [tags_by_doc, docs_by_tag]:
+            for k in d:
+                d[k].sort()
+        
+        for k,v in tags_by_doc.items():
+            doc = Document.find_one({'content':k})
+            self.assertEquals([tag.name for tag in doc.tags.find().sort('name')], v)
+            
+        for k,v in docs_by_tag.items():
+            tag = Tag.find_one({'name':k})
+            self.assertEquals([doc.content for doc in tag.documents.find().sort('content')], v)
+        
+        tag = Tag.find_one({'name':'seitan'})
+        self.assertEquals(tag.documents.count(), 4)
+        doc = tag.documents.find_one()
+        self.assertIn('seitan', [tag.name for tag in doc.tags])
+        num_doc_tags = doc.tags.count()
+        tag.documents.remove(doc)
+        self.assertEquals(tag.documents.count(), 3)
+        self.assertEquals(doc.tags.count(), num_doc_tags-1)
+        
+        
+    def test_many_to_many_join_cascade(self):
+        class Foo(Model):
+            bars = ManyToMany("Bar", inverse="foos", join="foo_bar", cascade=True)
+            
+        class Bar(Model):
+            pass
+        
+        foos = []
+        
+        for i in range(0,3):
+            f = Foo()
+            f.save()
+            for i in range(0,10):
+                b = Bar()
+                b.save()
+                f.bars.add(b)
+            foos.append(f)
+        
+        self.assertEquals(Bar.count(), 30)
+        
+        for foo in foos:
+            self.assertEquals(foo.bars.count(), 10)
+        
+        foos[0].remove()
+        
+        self.assertEquals(Bar.count(), 20)
+        
+        for foo in foos[1:]:
+            self.assertEquals(foo.bars.count(), 10)
+            
+        
 if __name__ == "__main__":
     unittest.main()
