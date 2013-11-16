@@ -9,7 +9,6 @@ setup(
     author = 'Elisha Cook',
     author_email = 'elisha@elishacook.com',
     url = 'https://github.com/elishacook/morbo',
-    download_url = 'https://github.com/elishacook/morbo/tarball/1.0.0',
     test_suite = 'tests',
     install_requires=[
         'pymongo>=2.6.2'
