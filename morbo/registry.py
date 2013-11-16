@@ -8,6 +8,7 @@ _local.instances = {}
 models = {}
 back_references = {}
 
+
 def clear():
     global models, back_references
     models = {}
@@ -42,3 +43,4 @@ def get_model_instances(id):
         if inst:
             insts.append(inst)
     return insts
+    

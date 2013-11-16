@@ -155,6 +155,30 @@ class TestModel(unittest.TestCase):
         self.assertFalse(s.modified_flag)
         s.save()
         self.assertTrue(s.modified_flag)
+        
+        
+    def test_inheritance(self):
+        class Foo(Model):
+            name = Text()
+            
+        class Bar(Foo):
+            desc = Text()
+        
+        self.assertEqual(Foo.collection_name, Bar.collection_name)
+        self.assertEqual(Foo.get_collection(), Bar.get_collection())
+        
+        foo = Foo(name="foo")
+        foo.save()
+        bar = Bar(name="bar", desc="blah blah blah")
+        bar.save()
+        
+        self.assertEqual(Foo.count(), 2)
+        self.assertEqual(Bar.count(), 1)
+        
+        results = list(Foo.find().sort('name'))
+        self.assertEqual(len(results), 2)
+        self.assertIsInstance(results[0], Bar)
+        self.assertIsInstance(results[1], Foo)
 
 
 if __name__ == "__main__":

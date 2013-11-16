@@ -17,7 +17,20 @@ class ModelMeta(type):
     def __init__(cls, name, bases, dict):
         super(ModelMeta, cls).__init__(name, bases, dict)
         
-        if 'collection_name' not in dict:
+        # _ib is for "inheritance bases" and _it is for "inheritance type"
+        _ib = []
+        full_name = cls.get_full_name()
+        
+        for b in bases:
+            if hasattr(b, '__metaclass__') and b.__metaclass__ == ModelMeta and b != Model:
+                setattr(cls, 'collection_name', b.collection_name)
+                _ib.append(b.get_full_name())
+        
+        if len(_ib) > 0:
+            cls._it = full_name
+            _ib.append(cls._it)
+            cls._ib = _ib
+        elif 'collection_name' not in dict:
             setattr(cls, 'collection_name', name.lower())
         
         for k,v in dict.items():
@@ -29,7 +42,6 @@ class ModelMeta(type):
             for key_or_list in dict['indexes']:
                 col.ensure_index(key_or_list)
         
-        full_name = "%s.%s" % (cls.__module__, cls.__name__)
         registry.models[full_name] = cls
         
         if full_name in registry.back_references:
@@ -55,6 +67,12 @@ class Model(object):
     __metaclass__ = ModelMeta
     collection_name = None
     _collection = None
+    _ib = None
+    _it = None
+    
+    @classmethod
+    def get_full_name(cls):
+        return "%s.%s" % (cls.__module__, cls.__name__)
     
     @classmethod
     def get_collection(cls):
@@ -87,6 +105,7 @@ class Model(object):
             
             Swallow.find({'direction':'E'}).next() # <Swallow 4e7bea8fd761504ae3000000>
         """
+        spec = cls._spec_from_spec_or_id(spec)
         return CursorProxy(cls, cls.get_collection().find(spec, *args, **kwargs))
         
         
@@ -96,7 +115,8 @@ class Model(object):
         Just like pymongo.Collection.find_one() but returns an instance of this
         model.
         """
-        fields = cls.get_collection().find_one(spec_or_id, *args, **kwargs)
+        spec = cls._spec_from_spec_or_id(spec_or_id)
+        fields = cls.get_collection().find_one(spec, *args, **kwargs)
         if fields:
             return cls(**fields)
     
@@ -106,7 +126,10 @@ class Model(object):
         """
         Get a count of the total number of instances of this model.
         """
-        return cls.get_collection().count()
+        if cls._it:
+            return cls.get_collection().find({'_ib':cls._it}).count()
+        else:
+            return cls.get_collection().count()
         
         
     @classmethod
@@ -115,6 +138,7 @@ class Model(object):
         Works just like pymongo.Collection.remove(). It has a different name
         so as not to conflict with the instance method remove().
         """
+        spec = cls._spec_from_spec_or_id(spec)
         cascading_relationships = 0
         for k,v in cls.__dict__.items():
             if isinstance(v, Relationship) and v._cascade:
@@ -124,6 +148,17 @@ class Model(object):
                 m.remove()
         else:
             cls.get_collection().remove(spec)
+    
+    
+    @classmethod
+    def _spec_from_spec_or_id(cls, spec_or_id):
+        if not spec_or_id:
+            spec_or_id = {}
+        if not isinstance(spec_or_id, dict):
+            spec_or_id = {'_id':spec_or_id}
+        if cls._it:
+            spec_or_id['_ib'] = cls._it
+        return spec_or_id
     
     
     def __init__(self, **kwargs):
@@ -204,8 +239,13 @@ class Model(object):
         if errors:
             raise InvalidGroupError(errors)
         
-        if self._id is not None:
-            d['_id'] = self._id
+        
+        for k in ['_id', '_ib']:
+            if hasattr(self, k):
+                v = getattr(self, k)
+                if v:
+                    d[k] = v
+            
         return d
     
     
