@@ -8,7 +8,7 @@ from morbo import *
 connection.setup('morbotests')
     
 
-class TestReferences(unittest.TestCase):
+class TestRelationships(unittest.TestCase):
     
     def setUp(self):
         for c in connection.database.collection_names():
@@ -225,6 +225,45 @@ class TestReferences(unittest.TestCase):
         self.assertEquals(b.name, "Bar b#1")
         
         
+    def test_one_to_many_query(self):
+        class Foo(Model):
+            bars = OneToMany("Bar", inverse="foo")
+            
+        class Bar(Model):
+            number = TypeOf(int)
+            
+        
+        foo = Foo()
+        foo.save()
+        self.assertEquals(foo.bars.count(), 0)
+        self.assertEquals(foo.bars.count({'number':{'$gt':5}}), 0)
+        
+        for i in range(0, 20):
+            b = Bar(number=i)
+            b.save()
+            b.foo = foo
+        
+        for i in range(0,10):
+            f = Foo()
+            f.save()
+            
+        self.assertEquals(Foo.count(), 11)
+        self.assertEquals(Bar.count(), 20)
+        self.assertEquals(foo.bars.count(), 20)
+        self.assertEquals(foo.bars.count({'number':{'$gt':5}}), 14)
+        
+        for i in range(0,10):
+            b = Bar(number=100 + i)
+            b.save()
+        
+        self.assertEquals(Bar.count(), 30)
+        self.assertEquals(foo.bars.count(), 20)
+        
+        all_bars = list(Bar.find({'number':{'$lt':5}}))
+        foo_bars = list(foo.bars.find({'number':{'$lt':5}}))
+        self.assertEquals(foo_bars, all_bars)
+        
+        
     def _many_to_many_paces(self, storage_policy):
         tags_by_doc = {
             "foo": ["tofu", "seitan"],
@@ -281,6 +320,9 @@ class TestReferences(unittest.TestCase):
         self.assertEquals(tag.documents.count(), 3)
         self.assertEquals(doc.tags.count(), num_doc_tags-1)
         
+        doc = Document.find_one({'content':'baz'})
+        self.assertEquals(doc.tags.count({'name':'tofu'}), 1)
+        
         
     def test_many_to_many_locallist(self):
         self._many_to_many_paces(ManyToMany.LocalList)
@@ -327,6 +369,84 @@ class TestReferences(unittest.TestCase):
         
         for foo in foos[1:]:
             self.assertEquals(foo.bars.count(), 10)
+            
+            
+    def test_class_remove_cascade(self):
+        class Foo(Model):
+            number = TypeOf(int)
+            bars = OneToMany("Bar", inverse="foo", cascade=True)
+            
+        class Bar(Model):
+            number = TypeOf(int)
+            
+            
+        for i in range(0,5):
+            f = Foo()
+            f.number = i
+            f.save()
+            
+            for j in range(0,10):
+                b = Bar()
+                b.number = j
+                b.save()
+                f.bars.add(b)
+        
+        self.assertEquals(Foo.count(), 5)
+        self.assertEquals(Bar.count(), 50)
+        
+        Foo.remove({'number': 4})
+        
+        self.assertEquals(Foo.count(), 4)
+        self.assertEquals(Bar.count(), 40)
+        
+        
+    def test_redefine_backreference_fails(self):
+        class Foo(Model):
+            pass
+            
+        class Bar(Model):
+            foos = ManyToOne(Foo, inverse="bars")
+        
+        with self.assertRaises(AssertionError):
+            class Baz(Model):
+                foos = ManyToOne(Foo, inverse="bars")
+        
+        class Qux(Model):
+            qugs = OneToMany("Qug", inverse="zzz")
+        
+        with self.assertRaises(AssertionError):    
+            class Quv(Model):
+                qugs = OneToMany("Qug", inverse="zzz")
+                
+                
+    def test_invalid_inverse_fails(self):
+        class Foo(Model):
+            bar = OneToOne("Bar", inverse="foo")
+        
+        with self.assertRaises(TypeError):
+            class Bar(Model):
+                foo = OneToMany(Foo)
+                
+                
+    def test_remove_with_spec(self):
+        class Foo(Model):
+            bars = OneToMany("Bar")
+            
+        class Bar(Model):
+            number = TypeOf(int)
+            
+            
+        foo = Foo()
+        foo.save()
+        
+        for i in range(0,10):
+            b = Bar(number=i)
+            b.save()
+            foo.bars.add(b)
+        
+        self.assertEquals(foo.bars.count(), 10)
+        foo.bars.remove({'number':{'$lt':5}})
+        self.assertEquals(foo.bars.count(), 5)
             
         
 if __name__ == "__main__":

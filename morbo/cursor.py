@@ -38,7 +38,7 @@ class CursorProxy(object):
         return self._inst(self._cursor.next())
         
     def clone(self):
-        return CursorProxy(self, self._model, self._cursor.clone())
+        return CursorProxy(self._model, self._cursor.clone())
         
     def limit(self, n):
         self._cursor.limit(n)

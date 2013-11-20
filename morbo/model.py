@@ -17,9 +17,11 @@ class ModelMeta(type):
     def __init__(cls, name, bases, dict):
         super(ModelMeta, cls).__init__(name, bases, dict)
         
+        full_name = cls.get_full_name()
+        registry.models[full_name] = cls
+        
         # _ib is for "inheritance bases" and _it is for "inheritance type"
         _ib = []
-        full_name = cls.get_full_name()
         
         for b in bases:
             if hasattr(b, '__metaclass__') and b.__metaclass__ == ModelMeta and b != Model:
@@ -41,8 +43,6 @@ class ModelMeta(type):
             col = cls.get_collection()
             for key_or_list in dict['indexes']:
                 col.ensure_index(key_or_list)
-        
-        registry.models[full_name] = cls
         
         if full_name in registry.back_references:
             for name, inverse_rel in registry.back_references[full_name].items():
@@ -135,8 +135,8 @@ class Model(object):
     @classmethod
     def remove(cls, spec=None):
         """
-        Works just like pymongo.Collection.remove(). It has a different name
-        so as not to conflict with the instance method remove().
+        Works just like pymongo.Collection.remove(). Note that this is different than the model instance
+        method remove() which removes just that single instance.
         """
         spec = cls._spec_from_spec_or_id(spec)
         cascading_relationships = 0
@@ -233,9 +233,10 @@ class Model(object):
                 elif getattr(self, k) is not None:
                     try:
                         d[k] = v.validate(getattr(self, k))
-                        setattr(self, k, d[k])
                     except InvalidError, ve:
                         errors[k] = ve.message
+                    else:
+                        setattr(self, k, d[k])
         if errors:
             raise InvalidGroupError(errors)
         

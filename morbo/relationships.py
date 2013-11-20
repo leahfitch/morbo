@@ -31,10 +31,20 @@ class Relationship(object):
             return
             
         if self.is_target_model_defined():
-            if hasattr(self._target_model, self._inverse_name):
-                getattr(self._target_model, self._inverse_name).set_inverse(self)
+            target_model = self.get_target_model()
+            owner_name = self._owner_cls.get_full_name()
+            # This relationship was specified as a backreference in an earlier definition
+            if owner_name in registry.back_references and self._name in registry.back_references[owner_name]:
+                self.set_inverse(registry.back_references[owner_name][self._name])
+            # The target already has an inverse relationship defined
+            elif hasattr(target_model, self._inverse_name):
+                inverse_rel = getattr(target_model, self._inverse_name)
+                if inverse_rel._inverse:
+                    raise AssertionError, "Attempt to redefine inverse relationship %s.%s" % (target_model.get_full_name(), self._inverse_name)
+                else:
+                    inverse_rel.set_inverse(self)
             else:
-                setattr(self._target_model, self._inverse_name, self.create_inverse())
+                setattr(target_model, self._inverse_name, self.inverse())
         else:
             target_name = self.get_target_model_name()
             if target_name not in registry.back_references:
@@ -55,8 +65,11 @@ class Relationship(object):
     def inverse(self):
         if not self._inverse:
             self._inverse = self.create_inverse()
-            self._inverse._inverse = self
+            self._inverse._target_model = self._owner_cls
+            self._inverse._owner_cls = self.get_target_model()
             self._inverse._inverse_name = self._name
+            self._inverse._inverse = self
+            self._inverse._name = self._inverse_name
         return self._inverse
         
         
@@ -244,12 +257,12 @@ class Many(Relationship):
         raise NotImplementedError
         
         
-    def get_spec_from_target_or_spec(self, target_or_spec):
+    def get_spec_from_target_or_spec(self, owner, target_or_spec):
         if isinstance(target_or_spec, self.get_target_model()):
             target_or_spec.assert_saved()
             spec = {'_id':target_or_spec._id}
         else:
-            spec = self.spec()
+            spec = self.spec(owner)
             if target_or_spec:
                 target_or_spec.update(spec)
                 spec = target_or_spec
@@ -269,11 +282,11 @@ class Many(Relationship):
         
         
     def find(self, owner, spec=None):
-        _spec = self.spec(owner)
         if spec:
-            spec.update(_spec)
-            _spec = spec
-        return self.get_target_model().find(_spec)
+            spec.update(self.spec(owner))
+        else:
+            spec = self.spec(owner)
+        return self.get_target_model().find(spec)
         
         
     def add(self, owner, target):
@@ -305,10 +318,11 @@ class OneToMany(Many):
         
         
     def remove(self, owner, target_or_spec=None):
-        spec = self.get_spec_from_target_or_spec(target_or_spec)
+        spec = self.get_spec_from_target_or_spec(owner, target_or_spec)
         self.get_target_model().get_collection().update(
             spec,
-            {'$unset':{self._inverse_name:True}}
+            {'$unset':{self._inverse_name:True}},
+            multi=True
         )
         
         
@@ -342,11 +356,11 @@ class ManyToMany(Many):
             
         def count(self, rel, owner, spec):
             if spec:
-                spec.update(self.spec())
+                spec.update(self.spec(rel, owner))
             else:
                 spec = self.spec()
                 
-            rel.get_target_model().get_collection().find(spec).count()
+            return rel.get_target_model().get_collection().find(spec).count()
     
     
     class List(StoragePolicy):
@@ -423,7 +437,8 @@ class ManyToMany(Many):
             
             rel.get_target_model().get_collection().update(
                 {'_id':{'$in':target_ids}},
-                {'$pull':{rel._inverse_name:owner._id}}
+                {'$pull':{rel._inverse_name:owner._id}},
+                multi=True
             )
             
             
@@ -467,7 +482,8 @@ class ManyToMany(Many):
             
             rel.get_target_model().get_collection().update(
                 {'_id':{'$in':target_ids}},
-                {'$pull':{rel._inverse_name:owner._id}}
+                {'$pull':{rel._inverse_name:owner._id}},
+                multi=True
             )
             
             
@@ -509,7 +525,7 @@ class ManyToMany(Many):
             
         def count(self, rel, owner, spec):
             if spec:
-                return super(Join, self).count(rel, owner, spec)
+                return super(ManyToMany.Join, self).count(rel, owner, spec)
                 
             owner_key, target_key, join_collection = self.get_join_context(rel, owner)
             return join_collection.find({owner_key:owner._id}).count()
@@ -577,14 +593,14 @@ class ManyToMany(Many):
         
         
     def remove(self, owner, target_or_spec=None):
-        target_ids = self.get_target_ids(target_or_spec)
+        target_ids = self.get_target_ids(owner, target_or_spec)
         if len(target_ids) == 0:
             return
         self._storage_policy.remove(self, owner, target_ids)
         
         
-    def get_target_ids(self, target_or_spec):
-        spec = self.get_spec_from_target_or_spec(target_or_spec)
+    def get_target_ids(self, owner, target_or_spec):
+        spec = self.get_spec_from_target_or_spec(owner, target_or_spec)
         target_collection = self.get_target_model().get_collection()
         return [r['_id'] for r in target_collection.find(spec, [])]
         

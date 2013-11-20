@@ -10,9 +10,11 @@ back_references = {}
 
 
 def clear():
-    global models, back_references
+    global models, back_references, _local
     models = {}
     back_references = {}
+    _local = threading.local()
+    _local.instances = {}
     
     
 def add_model_instance(inst):

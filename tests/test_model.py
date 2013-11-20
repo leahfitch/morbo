@@ -43,10 +43,12 @@ class TestModel(unittest.TestCase):
         """
         class Foo(Model):
             name = Text()
-            bars = TypeOf(int)
+            bar = TypeOf(int)
+            baz = Text()
             
         f = Foo()
         f.name = "foo"
+        f.bar = "7"
         self.assertRaises(InvalidGroupError, f.save)
         
         
@@ -71,6 +73,15 @@ class TestModel(unittest.TestCase):
         f = cur.next()
         self.assertIsInstance(f, Foo)
         self.assertEqual(f.name, "10")
+        
+        cur_copy = cur.clone()
+        self.assertEqual(10, cur.count())
+        
+        foos = list(Foo.find().limit(3))
+        self.assertEqual(len(foos), 3)
+        
+        foos = list(Foo.find().skip(8))
+        self.assertEqual(len(foos), 12)
         
         
     def test_remove(self):
@@ -179,6 +190,18 @@ class TestModel(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertIsInstance(results[0], Bar)
         self.assertIsInstance(results[1], Foo)
+        
+        
+    def test_str(self):
+        class Foo(Model):
+            pass
+            
+        for fn in [str, repr]:
+            f = Foo()
+            self.assertEqual(fn(f), "<Foo \"unsaved\">")
+            f.save()
+            self.assertEqual(fn(f), "<Foo \"%s\">" % f._id)
+            
 
 
 if __name__ == "__main__":
