@@ -17,10 +17,12 @@ def clear():
     
 def add_model_instance(inst):
     id = unicode(inst._id)
-    if id not in _local.instances:
-        _local.instances[id] = []
     callback = partial(_remove_model_inst_ref, id)
-    _local.instances[id].append(weakref.ref(inst, callback))
+    ref = weakref.ref(inst, callback)
+    if id not in _local.instances:
+        _local.instances[id] = [ref]
+    else:
+        _local.instances[id].append(ref)
     
     
 def _remove_model_inst_ref(id, r):

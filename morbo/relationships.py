@@ -6,6 +6,12 @@ from cursor import CursorProxy
 class Relationship(object):
     
     def __init__(self, target_model, inverse=None, cascade=False):
+        """Create a relationship between two models.
+        
+        :param target_model: The model type that is the target of the relationship.
+        :param inverse: The name of the inverse relationsip on the target. This relationship will be created automatically and does not need to be defined on the target.
+        :param cascade: If ``True``, when an instance is removed, the related target models will also be removed.
+        """
         self._target_model = target_model
         self._inverse_name = inverse
         self._name = None
@@ -250,10 +256,6 @@ class Many(Relationship):
         return spec
         
         
-    def count(self, owner, spec=None):
-        return self.find(owner, spec).count()
-        
-        
     def find_one(self, owner, spec_or_id=None):
         spec = self.spec(owner)
         if spec_or_id:
@@ -310,108 +312,275 @@ class OneToMany(Many):
         )
         
         
+    def count(self, owner, spec=None):
+        return self.find(owner, spec).count()
+        
+        
     def cascade(self, owner):
         if owner._id:
             self.get_target_model().remove(self.spec(owner))
-    
+
     
 class ManyToMany(Many):
     
-    def __init__(self, target_model, inverse=None, cascade=False, join=None):
-        super(ManyToMany, self).__init__(target_model, inverse=inverse, cascade=cascade)
-        self._join = join
-        self._join_collection = None
+    class StoragePolicy(object):
         
+        def add(self, rel, owner, target):
+            raise NotImplementedError
+        
+        def remove(self, rel, owner, target):
+            raise NotImplementedError
+            
+        def spec(self, rel, owner):
+            raise NotImplementedError
+            
+        def inverse(self):
+            raise NotImplementedError
+            
+        def validate_inverse(self, policy):
+            raise NotImplementedError
+            
+        def count(self, rel, owner, spec):
+            if spec:
+                spec.update(self.spec())
+            else:
+                spec = self.spec()
+                
+            rel.get_target_model().get_collection().find(spec).count()
+    
+    
+    class List(StoragePolicy):
+        
+        def _list_add(self, reference_field, owner, target):
+            if not owner._reference_fields.get(reference_field):
+                owner._reference_fields[reference_field] = []
+            elif target._id in owner._reference_fields[reference_field]:
+                return
+            for obj in registry.get_model_instances(owner._id):
+                if not obj._reference_fields.get(reference_field):
+                    obj._reference_fields[reference_field] = []
+                obj._reference_fields[reference_field].append(target._id)
+            owner.get_collection().update(
+                {'_id':owner._id},
+                {'$addToSet':{reference_field:target._id}}
+            )
+    
+    
+    class LocalList(List):
+        
+        def add(self, rel, owner, target):
+            self._list_add(rel._name, owner, target)
+            
+            
+        def remove(self, rel, owner, target_ids):
+            filtered_ids = filter(lambda x: x not in target_ids, owner._reference_fields[rel._name])
+            
+            for obj in registry.get_model_instances(owner._id):
+                obj._reference_fields[rel._name] = filtered_ids
+            
+            owner.get_collection().update(
+                {'_id':owner._id},
+                {'$pullAll':{rel._name:target_ids}}
+            )
+            
+            
+        def count(self, rel, owner, spec):
+            if spec:
+                return super(ManyToMany.LocalList, self).count(rel, owner, spec)
+                
+            ids = owner._reference_fields.get(rel._name)
+            if ids:
+                return len(ids)
+            else:
+                return 0
+            
+            
+        def spec(self, rel, owner):
+            return {'_id':{'$in':owner._reference_fields.get(rel._name, [])}}
+            
+            
+        def inverse(self):
+            return ManyToMany.RemoteList()
+            
+            
+        def validate_inverse(self, policy):
+            assert isinstance(policy, ManyToMany.RemoteList), "Expected ManyToMany.RemoteList got %s" % policy.__class__.__name__
+        
+        
+    class RemoteList(List):
+        
+        def add(self, rel, owner, target):
+            self._list_add(rel._inverse_name, target, owner)
+            
+                
+        def remove(self, rel, owner, target_ids):
+            for target_id in target_ids:
+                for obj in registry.get_model_instances(target_id):
+                    try:
+                        obj._reference_fields[rel._inverse_name].remove(owner._id)
+                    except ValueError:
+                        pass
+            
+            rel.get_target_model().get_collection().update(
+                {'_id':{'$in':target_ids}},
+                {'$pull':{rel._inverse_name:owner._id}}
+            )
+            
+            
+        def count(self, rel, owner, spec):
+            if spec:
+                return super(ManyToMany.RemoteList, self).count(rel, owner, spec)
+                
+            return rel.get_target_model().get_collection().find(self.spec(rel, owner)).count()
+            
+            
+        def spec(self, rel, owner):
+            return {rel._inverse_name:owner._id}
+            
+            
+        def inverse(self):
+            return ManyToMany.LocalList()
+            
+            
+        def validate_inverse(self, policy):
+            assert isinstance(policy, ManyToMany.LocalList), "Expected ManyToMany.LocalList got %s" % policy.__class__.__name__
+        
+        
+    class LocalAndRemoteList(LocalList):
+        
+        def add(self, rel, owner, target):
+            self._list_add(rel._name, owner, target)
+            self._list_add(rel._inverse_name, target, owner)
+            
+            
+        def remove(self, rel, owner, target_ids):
+            super(ManyToMany.LocalAndRemoteList, self).remove(rel, owner, target_ids)
+            
+            for target_id in target_ids:
+                for obj in registry.get_model_instances(target_id):
+                    field = obj._reference_fields.get(rel._inverse_name)
+                    if field:
+                        try:
+                            field.remove(owner._id)
+                        except ValueError:
+                            pass
+            
+            rel.get_target_model().get_collection().update(
+                {'_id':{'$in':target_ids}},
+                {'$pull':{rel._inverse_name:owner._id}}
+            )
+            
+            
+        def inverse(self):
+            return ManyToMany.LocalAndRemoteList()
+            
+            
+        def validate_inverse(self, policy):
+            assert isinstance(policy, ManyToMany.LocalAndRemoteList), "Expected ManyToMany.LocalAndRemoteList got %s" % policy.__class__.__name__
+        
+        
+    class Join(StoragePolicy):
+        
+        def __init__(self, join=None):
+            self._join = join
+            self._join_collection = None
+        
+        
+        def add(self, rel, owner, target):
+            owner_key, target_key, join_collection = self.get_join_context(rel, owner)
+            entry = {
+                owner_key: owner._id,
+                target_key: target._id
+            }
+            join_collection.update(
+                entry,
+                {'$set': entry},
+                upsert=True
+            )
+            
+            
+        def remove(self, rel, owner, target_ids):
+            owner_key, target_key, join_collection = self.get_join_context(rel, owner)
+            join_collection.remove({
+                owner_key: owner._id,
+                target_key: {'$in':target_ids}
+            })
+            
+            
+        def count(self, rel, owner, spec):
+            if spec:
+                return super(Join, self).count(rel, owner, spec)
+                
+            owner_key, target_key, join_collection = self.get_join_context(rel, owner)
+            return join_collection.find({owner_key:owner._id}).count()
+            
+            
+        def spec(self, rel, owner):
+            owner_key, target_key, join_collection = self.get_join_context(rel, owner)
+            ids = [r[target_key] for r in join_collection.find({owner_key:owner._id}, fields=[target_key])]
+            return {
+                '_id':{
+                    '$in': ids
+                }
+            }
+            
+            
+        def get_join_context(self, rel, owner):
+            if not self._join:
+                return None, None, None
+            if not self._join_collection:
+                self._owner_key = owner.__class__.__name__
+                self._target_key = rel.get_target_model().__name__
+                self._join_collection = connection.database[self._join]
+                self._join_collection.ensure_index([
+                    (self._owner_key, 1),
+                    (self._target_key, 1)
+                ])
+            return self._owner_key, self._target_key, self._join_collection
+            
+            
+        def inverse(self):
+            return ManyToMany.Join(self._join)
+            
+            
+        def validate_inverse(self, policy):
+            assert isinstance(policy, ManyToMany.Join), "Expected ManyToMany.Join got %s" % policy.__class__.__name__
+    
+    
+    def __init__(self, target_model, inverse=None, cascade=False, storage_policy=LocalList):
+        super(ManyToMany, self).__init__(target_model, inverse=inverse, cascade=cascade)
+        
+        if isinstance(storage_policy, ManyToMany.StoragePolicy):
+            self._storage_policy = storage_policy
+        elif isinstance(storage_policy, type):
+            self._storage_policy = storage_policy()
+        else:
+            self._storage_policy = None
+            
         
     def create_inverse(self):
-        return ManyToMany(self._owner_cls, join=self._join)
+        rel = ManyToMany(self._owner_cls)
+        rel._storage_policy = self._storage_policy.inverse()
+        return rel
         
         
     def validate_inverse(self, rel):
         super(ManyToMany, self).validate_inverse(rel)
-        if not rel._join:
-            rel._join = self._join
-        elif rel._join != self._join:
-            raise AssertionError, "%s and %s specify different join collections" % (self.get_name(), rel.get_name())
+        assert isinstance(rel, ManyToMany), "Expected ManyToMany got %s" % rel.__class__.__name__
+        self._storage_policy.validate_inverse(rel._storage_policy)
         
         
     def add(self, owner, target):
         owner.assert_saved()
         target.assert_saved()
-        if self._join:
-            self._add_join(owner, target)
-        else:
-            self._add_local(owner, target)
-        
-        
-    def _add_join(self, owner, target):
-        owner_key, target_key, join_collection = self.get_join_context(owner)
-        entry = {
-            owner_key: owner._id,
-            target_key: target._id
-        }
-        join_collection.update(
-            entry,
-            {'$set': entry},
-            upsert=True
-        )
-        
-        
-    def _add_local(self, owner, target):
-        if not owner._reference_fields.get(self._name):
-            owner._reference_fields[self._name] = []
-        if target._id not in owner._reference_fields[self._name]:
-            for obj in registry.get_model_instances(owner._id):
-                obj._reference_fields[self._name].append(target._id)
-            owner.get_collection().update(
-                {'_id':owner._id},
-                {'$addToSet':{self._name:target._id}}
-            )
-            target.get_collection().update(
-                {'_id':target._id},
-                {'$addToSet':{self._inverse_name:owner._id}}
-            )
+        self._storage_policy.add(self, owner, target)
         
         
     def remove(self, owner, target_or_spec=None):
         target_ids = self.get_target_ids(target_or_spec)
         if len(target_ids) == 0:
             return
-            
-        if self._join:
-            self._remove_join(owner, target_ids)
-        else:
-            self._remove_local(owner, target_ids)
-            
-            
-    def _remove_join(self, owner, target_ids):
-        owner_key, target_key, join_collection = self.get_join_context(owner)
-        join_collection.remove({target_key:{'$in':target_ids}})
-        
-        
-    def _remove_local(self, owner, target_ids):
-        filtered_ids = filter(lambda x: x not in target_ids, owner._reference_fields[self._name])
-        
-        for obj in registry.get_model_instances(owner._id):
-            obj._reference_fields[self._name] = filtered_ids
-            
-        owner.get_collection().update(
-            {'_id':owner._id},
-            {'$pullAll':{self._name:filtered_ids}}
-        )
-        
-        for target_id in target_ids:
-            for obj in registry.get_model_instances(target_id):
-                field = obj._reference_fields[self._inverse_name]
-                try:
-                    field.remove(owner._id)
-                except ValueError:
-                    pass
-        
-        self.get_target_model().get_collection().update(
-            {'_id':{'$in':target_ids}},
-            {'$pull':{self._inverse_name:owner._id}}
-        )
+        self._storage_policy.remove(self, owner, target_ids)
         
         
     def get_target_ids(self, target_or_spec):
@@ -426,25 +595,9 @@ class ManyToMany(Many):
         
         
     def spec(self, owner):
-        if self._join:
-            owner_key, target_key, join_collection = self.get_join_context(owner)
-            ids = [r[target_key] for r in join_collection.find({owner_key:owner._id}, fields=[target_key])]
-        else:
-            ids = owner._reference_fields.get(self._name, [])
-        
-        return {'_id':{'$in':ids}}
+        return self._storage_policy.spec(self, owner)
         
         
-    def get_join_context(self, owner):
-        if not self._join:
-            return None, None, None
-        if not self._join_collection:
-            self._owner_key = owner.__class__.__name__
-            self._target_key = self.get_target_model().__name__
-            self._join_collection = connection.database[self._join]
-            self._join_collection.ensure_index([
-                (self._owner_key, 1),
-                (self._target_key, 1)
-            ])
-        return self._owner_key, self._target_key, self._join_collection
-            
+    def count(self, owner, spec=None):
+        return self._storage_policy.count(self, owner, spec)
+        
