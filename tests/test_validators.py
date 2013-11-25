@@ -144,7 +144,6 @@ class TestEmail(unittest.TestCase):
                 self.fail('Failed to accept %s' % email)
         
         
-        
 class TestDateTime(unittest.TestCase):
     
     def test_fail(self):
@@ -616,6 +615,17 @@ class TestGroup(unittest.TestCase):
                 self.assertEqual(good_out, v.validate(good_in))
             except InvalidError:
                 self.fail("Failed to pass %s" % good_in)
+                
+                
+    def test_empty_string_optional(self):
+        """
+        Should not raise an error when passing an empty string to an optional validator
+        """
+        v = GroupValidator(email=Email(optional=True))
+        try:
+            v.validate({'email':''})
+        except InvalidError:
+            self.fail("Raised invalid error on an empty string for an optional validator")
         
         
 class TestAnything(unittest.TestCase):
