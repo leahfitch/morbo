@@ -477,10 +477,10 @@ class TestURL(unittest.TestCase):
     
     def test_fail(self):
         """
-        Don't pass things that aren't URLs or that don't have the specified schemes.
+        Don't pass things that aren't URLs.
         """
-        not_urls = ["snipe", u'\xe2\x99\xa5', 777, 'huup://foo.bar']
-        v = URL(schemes=('http',))
+        not_urls = ["snipe", u'\xe2\x99\xa5', 777]
+        v = URL()
         
         for not_url in not_urls:
             self.assertRaises(InvalidError, v.validate, not_url)
@@ -495,9 +495,11 @@ class TestURL(unittest.TestCase):
             'foo://example.com./',
             'http://example.com/foo/bar?baz=goo&snoo=snazz#help',
             'http://127.0.0.1',
-            'bar://127.0.0.1:80'
+            'bar://127.0.0.1:80',
+            'http://foo:123/',
+            'http://foo:bar@baz:123'
         ]
-        v = URL(schemes=('http', 'foo', 'bar'))
+        v = URL()
         
         for url in urls:
             try:

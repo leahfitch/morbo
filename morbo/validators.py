@@ -485,13 +485,14 @@ class URL(Validator):
         v = URL(schemes=('gopher',))
         v.validate('gopher://example.com/') # ok
         v.validate('http://example.com/') # nope!
+    
+    Regex from http://daringfireball.net/2010/07/improved_regex_for_matching_urls.
     """
     NOT_A_URL = "Not a URL"
     
-    def __init__(self, schemes=('http(s)?',), **kwargs):
+    def __init__(self, **kwargs):
         super(URL, self).__init__(**kwargs)
-        self.pattern = re.compile('^(%s)?://[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?(\.[a-zA-Z0-9]+([a-zA-Z0-9\-][a-zA-Z0-9]+)?)+\.?(:\d+)?(/[^/;\?]+)*/?(\?[^/;\?#]*)?(#.*)?$' % \
-                                "|".join(schemes))
+        self.pattern = re.compile('((?:[a-z][\w-]+:(?:/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:\'".,<>?\xc2\xab\xc2\xbb\xe2\x80\x9c\xe2\x80\x9d\xe2\x80\x98\xe2\x80\x99]))')
         
         
     def validate(self, value):
