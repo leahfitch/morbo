@@ -182,7 +182,7 @@ class GroupValidator(Validator):
         errors = {}
         
         for k,v in self.validators.items():
-            if k in value:
+            if k in value and value[k] != "":
                 try:
                     validated[k] = v.validate(value[k])
                 except InvalidError, e:
@@ -429,7 +429,7 @@ class Enum(Validator):
     """
     Passes anything that evaluates equal to one of a list of values::
     
-        v = Enum(['a', 'b', 'c'])
+        v = Enum('a', 'b', 'c')
         v.validate('a') # ok
         v.validate('d') # nope!
     """
