@@ -5,7 +5,7 @@ You can have whatever non-validator attributes and methods you want.
 Along with simple persistence, Model subclasses also provide methods for finding,
 removing and updating instances using almost the same API as pymongo.
 """
-from validators import Validator, InvalidError, InvalidGroupError
+from validators import Validator, GroupValidator, InvalidError, InvalidGroupError
 from cursor import CursorProxy
 from relationships import Relationship
 import connection
@@ -224,22 +224,14 @@ class Model(object):
         """
         Run validation on all validated fields.
         """
-        errors = {}
-        d = {}
+        validators = {}
+        values = {}
         for k,v in self.__class__.__dict__.items():
             if isinstance(v, Validator):
-                if not v.optional and getattr(self, k) is None:
-                    errors[k] = 'This field is required.'
-                elif getattr(self, k) is not None:
-                    try:
-                        d[k] = v.validate(getattr(self, k))
-                    except InvalidError, ve:
-                        errors[k] = ve.message
-                    else:
-                        setattr(self, k, d[k])
-        if errors:
-            raise InvalidGroupError(errors)
-        
+                validators[k] = v
+                values[k] = getattr(self, k)
+        group_validator = GroupValidator(**validators)
+        d = group_validator.validate(values)
         
         for k in ['_id', '_ib']:
             if hasattr(self, k):

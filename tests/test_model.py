@@ -202,6 +202,23 @@ class TestModel(unittest.TestCase):
             f.save()
             self.assertEqual(fn(f), "<Foo \"%s\">" % f._id)
             
+            
+    def test_validate_empty_string(self):
+        class Foo(Model):
+            name = Email(optional=True)
+            
+        
+        f1 = Foo(email="")
+        try:
+            f1.validate()
+        except InvalidGroupError:
+            self.fail()
+            
+        f2 = Foo()
+        try:
+            f2.validate()
+        except InvalidGroupError:
+            self.fail()
 
 
 if __name__ == "__main__":

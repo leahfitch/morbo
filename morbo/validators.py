@@ -182,7 +182,7 @@ class GroupValidator(Validator):
         errors = {}
         
         for k,v in self.validators.items():
-            if k in value and value[k] != "":
+            if k in value and value[k] != "" and value[k] is not None:
                 try:
                     validated[k] = v.validate(value[k])
                 except InvalidError, e:
