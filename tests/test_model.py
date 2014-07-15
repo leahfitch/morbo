@@ -1,5 +1,5 @@
 """
-Unit tests for modeling unrelated data.
+Unit tests for models
 """
 import unittest
 from morbo import connection, Model

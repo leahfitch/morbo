@@ -12,7 +12,7 @@ Modules
    connection
    validators
    model
-   references
+   relationships
 
 
 Index
