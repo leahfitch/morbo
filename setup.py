@@ -11,7 +11,7 @@ setup(
     url = 'https://github.com/elishacook/morbo',
     test_suite = 'tests',
     install_requires=[
-        'pymongo>=2.6.2'
+        'pymongo'
     ],
-    setup_requires=['nose>=1.0']
+    setup_requires=['nose']
 )
