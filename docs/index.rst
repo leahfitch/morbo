@@ -1,10 +1,12 @@
-Morbo
-=================================
+.. include:: ../README.rst
 
-.. automodule:: morbo
+Features
+++++++++
+
+
 
 Modules
-++++++++++++++++++++++++++++++++++
++++++++
 
 .. toctree::
    :maxdepth: 2
